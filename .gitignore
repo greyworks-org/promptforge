@@ -1,0 +1,32 @@
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.local
+npm-debug.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+target/
+
+# Test / coverage output
+coverage/
+*.tsbuildinfo
+
+# Secrets — never commit, in any form
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.*
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json

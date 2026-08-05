@@ -1,0 +1,40 @@
+{
+  "task_type": "feature",
+  "execution_mode": "standard",
+  "target_provider": "qwen",
+  "objective": "Authenticated users can view their AI credit usage.",
+  "user_value": "Users understand remaining usage before reaching the limit.",
+  "current_state": [
+    "Authentication already exists",
+    "Stripe subscription records are stored in Supabase"
+  ],
+  "relevant_context": ["DESIGN.md", "DATA_MODEL.md", "INTEGRATIONS.md"],
+  "assumptions": [],
+  "blocking_questions": [],
+  "scope": [
+    "Create the usage page",
+    "Show plan, consumed credits and renewal date",
+    "Add loading, empty and error states"
+  ],
+  "out_of_scope": ["Creating new Stripe prices", "Admin reporting", "Email notifications"],
+  "requirements": {
+    "functional": [],
+    "frontend": [],
+    "backend": [],
+    "data": [],
+    "security": [],
+    "accessibility": [],
+    "performance": []
+  },
+  "edge_cases": [],
+  "acceptance_criteria": [
+    "Usage page renders plan, consumed credits and renewal date for a logged-in user"
+  ],
+  "execution_plan": [],
+  "test_plan": [],
+  "stop_conditions": [],
+  "final_report": [],
+  "risk_level": "medium",
+  "confidence": 0.87,
+  "estimated_prompt_tokens": 1450
+}

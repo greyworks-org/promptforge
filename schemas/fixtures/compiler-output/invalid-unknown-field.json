@@ -1,0 +1,12 @@
+{
+  "task_type": "bugfix",
+  "execution_mode": "quick",
+  "target_provider": "qwen",
+  "objective": "Fix the login button not responding on the settings page.",
+  "scope": ["Repair the login button click handler on the settings page"],
+  "acceptance_criteria": [
+    "Login button submits the form from the settings page"
+  ],
+  "risk_level": "low",
+  "notes": "The model added free-form commentary that does not belong in the contract."
+}

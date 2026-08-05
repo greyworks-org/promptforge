@@ -1,0 +1,17 @@
+{
+  "task_type": "integration",
+  "execution_mode": "standard",
+  "target_provider": "codex",
+  "objective": "Connect the billing provider so users can upgrade their plan.",
+  "scope": ["Implement the plan upgrade flow"],
+  "blocking_questions": [
+    "Which billing provider should be used?",
+    "Should invoices be emailed automatically?",
+    "Are refunds supported in this flow?",
+    "Which currency is the default?"
+  ],
+  "acceptance_criteria": [
+    "A user can upgrade their plan and sees the new price before confirming"
+  ],
+  "risk_level": "high"
+}
