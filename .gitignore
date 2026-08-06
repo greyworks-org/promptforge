@@ -8,6 +8,7 @@ pnpm-debug.log*
 
 # Rust / Tauri
 src-tauri/target/
+src-tauri/gen/
 target/
 
 # Test / coverage output
