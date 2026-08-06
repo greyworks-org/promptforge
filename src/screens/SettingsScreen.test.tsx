@@ -6,8 +6,8 @@ import type { ProviderProfile } from '../schemas/providerProfile';
 
 function makeDeps(overrides: Partial<NonNullable<SettingsScreenProps['deps']>> = {}) {
   return {
-    loadProfile: vi.fn(() => null),
-    saveProfile: vi.fn((p: ProviderProfile) => p),
+    loadProfile: vi.fn(async () => null),
+    saveProfile: vi.fn(async (p: ProviderProfile) => p),
     saveApiKey: vi.fn(async () => undefined),
     deleteApiKey: vi.fn(async () => true),
     hasApiKey: vi.fn(async () => false),
@@ -31,8 +31,8 @@ function successResult(): ConnectionTestResult {
   };
 }
 
-function fillValidForm() {
-  fireEvent.change(screen.getByLabelText('Base URL'), {
+async function fillValidForm() {
+  fireEvent.change(await screen.findByLabelText('Base URL'), {
     target: { value: 'http://localhost:4141' },
   });
   fireEvent.change(screen.getByLabelText('Model ID'), { target: { value: 'test-model' } });
@@ -54,7 +54,9 @@ describe('SettingsScreen', () => {
   it('shows validation errors and does not save an invalid base URL', async () => {
     const deps = makeDeps();
     render(<SettingsScreen deps={deps} />);
-    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://remote.example.com' } });
+    fireEvent.change(await screen.findByLabelText('Base URL'), {
+      target: { value: 'http://remote.example.com' },
+    });
     fireEvent.change(screen.getByLabelText('Model ID'), { target: { value: 'm' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
@@ -64,7 +66,7 @@ describe('SettingsScreen', () => {
   it('saves profile and key, then clears the key input', async () => {
     const deps = makeDeps({ hasApiKey: vi.fn(async () => true) });
     render(<SettingsScreen deps={deps} />);
-    fillValidForm();
+    await fillValidForm();
     fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'sk-test-123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
@@ -81,7 +83,7 @@ describe('SettingsScreen', () => {
   it('does not call saveApiKey when the key field is empty', async () => {
     const deps = makeDeps({ hasApiKey: vi.fn(async () => true) });
     render(<SettingsScreen deps={deps} />);
-    fillValidForm();
+    await fillValidForm();
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     await waitFor(() => expect(deps.saveProfile).toHaveBeenCalledTimes(1));
     expect(deps.saveApiKey).not.toHaveBeenCalled();
@@ -102,7 +104,7 @@ describe('SettingsScreen', () => {
     });
     const deps = makeDeps({ testConnection: vi.fn(() => pending) });
     render(<SettingsScreen deps={deps} />);
-    fillValidForm();
+    await fillValidForm();
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
 
     expect(await screen.findByText('Testing…')).toBeTruthy();
@@ -129,7 +131,7 @@ describe('SettingsScreen', () => {
       })),
     });
     render(<SettingsScreen deps={deps} />);
-    fillValidForm();
+    await fillValidForm();
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(await screen.findByText('✗ Authentication rejected')).toBeTruthy();
     expect(screen.getByText('Error class: auth')).toBeTruthy();
@@ -138,7 +140,9 @@ describe('SettingsScreen', () => {
   it('blocks the test when the model ID is missing', async () => {
     const deps = makeDeps();
     render(<SettingsScreen deps={deps} />);
-    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://localhost:4141' } });
+    fireEvent.change(await screen.findByLabelText('Base URL'), {
+      target: { value: 'http://localhost:4141' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(deps.testConnection).not.toHaveBeenCalled();

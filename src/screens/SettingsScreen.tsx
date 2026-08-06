@@ -46,6 +46,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   const [apiKey, setApiKey] = useState('');
   const [jsonMode, setJsonMode] = useState<'auto' | 'on' | 'off'>('auto');
 
+  const [loading, setLoading] = useState(true);
   const [keyState, setKeyState] = useState<KeyState>('unknown');
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -62,12 +63,27 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   }, [keyExists]);
 
   useEffect(() => {
-    const existing = load() ?? defaultProfile();
-    setLabel(existing.label);
-    setBaseUrl(existing.baseUrl);
-    setModelId(existing.modelId);
-    setJsonMode(existing.capabilities.jsonMode);
-    void refreshKeyState();
+    let cancelled = false;
+    const init = async () => {
+      let existing: ProviderProfile | null = null;
+      try {
+        existing = await load();
+      } catch {
+        existing = null;
+      }
+      if (cancelled) return;
+      const profile = existing ?? defaultProfile();
+      setLabel(profile.label);
+      setBaseUrl(profile.baseUrl);
+      setModelId(profile.modelId);
+      setJsonMode(profile.capabilities.jsonMode);
+      setLoading(false);
+      void refreshKeyState();
+    };
+    void init();
+    return () => {
+      cancelled = true;
+    };
   }, [load, refreshKeyState]);
 
   const buildCandidate = (): unknown => ({
@@ -89,7 +105,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     }
     setBusy('saving');
     try {
-      save(check.profile);
+      await save(check.profile);
       if (apiKey.trim() !== '') {
         await saveKey(check.profile.id, apiKey.trim());
         setApiKey('');
@@ -147,6 +163,16 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
 
   const inputClass =
     'w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none';
+
+  if (loading) {
+    return (
+      <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+        <p className="text-sm text-zinc-500" role="status">
+          Loading settings…
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
