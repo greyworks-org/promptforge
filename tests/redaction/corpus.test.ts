@@ -18,7 +18,7 @@ const SECRET_FILES = [
   'db-connection.yaml',
   'openai-config.json',
   'supabase.toml',
-  'private-key.pem',
+  'private-key-block.txt',
 ];
 
 describe('secret corpus — 100% detection', () => {
