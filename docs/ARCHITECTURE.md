@@ -305,6 +305,7 @@ is assembled entirely from local state.
 | Git state inspection | Rust `git_inspect` (read-only allowlist) + live `GitSnapshot` (DATA_MODEL.md §1.7) |
 | Interrupted-task recovery | Handoff recovery section from uncommitted-change evidence (§11.4) |
 | Qwen / Codex / Claude handoff | `handoffService` + handoff renderers (§11) — deterministic, zero model calls |
+| Design tool integration | `DesignToolProfile` + scope registry + billing guard (contract only — `docs/DESIGN_TOOL.md`) |
 
 ## 7. Stack confirmation, challenges and risk register
 

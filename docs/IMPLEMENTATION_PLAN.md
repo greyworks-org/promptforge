@@ -591,5 +591,6 @@ arbitrary command path.
 
 Image attachments (assets/) → memory-update suggestions → Qwen `/stats`
 import → zero-call Quick mode → comparison analytics → entropy hard-blocking
-→ Windows/Linux packaging → signing/notarization. Each needs its own phase
-spec before starting.
+→ design tool integration (Figma — `docs/DESIGN_TOOL.md`) → Windows/Linux
+packaging → signing/notarization. Each needs its own phase spec before
+starting.

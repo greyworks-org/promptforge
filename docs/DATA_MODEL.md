@@ -224,9 +224,64 @@ Only allowlisted git commands run (`log -1`, `status --porcelain=v1`,
 record's `base_commit` plus this snapshot let the handoff layer classify
 completed / partial / remaining work deterministically (ARCHITECTURE.md §11).
 
+### 1.8 Design tool data (contract — Phase TBD)
+
+Design tool configuration is split into two layers (`docs/DESIGN_TOOL.md` §1):
+
+- **Workspace configuration** — installation-level, stored under a
+  `design.workspaces` settings key (same JSON pattern as `provider.profiles`
+  in §1.5). Contains connection config, security boundary (`team_id`,
+  `folder_id`), action policy, and usage policy. One entry per provider.
+- **Project bindings** — per-project table below. Contains only the
+  workspace reference and project-specific `approvedFileKeys`.
+
+```sql
+CREATE TABLE design_tool_bindings (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  workspace_id    TEXT NOT NULL,
+  provider        TEXT NOT NULL,
+  approved_file_keys_json TEXT NOT NULL DEFAULT '[]',
+  scope_verified  INTEGER NOT NULL DEFAULT 0,
+  last_scope_verified_at TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  UNIQUE (project_id, provider)
+);
+
+CREATE TABLE design_tool_allowlist_audit (
+  id              TEXT PRIMARY KEY,
+  binding_id      TEXT NOT NULL REFERENCES design_tool_bindings(id) ON DELETE CASCADE,
+  action          TEXT NOT NULL,
+  file_key        TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  reason          TEXT,
+  recorded_at     TEXT NOT NULL
+);
+```
+
+Rules:
+- One binding row per project per provider.
+- `workspace_id` references the installation-level workspace configuration
+  stored in `settings.value` under `design.workspaces.<id>`.
+- `approved_file_keys_json` is the **active** (mutable) allowlist. FileKeys
+  may be added (via verified scope operations or user action) and revoked
+  (user action only).
+- `design_tool_allowlist_audit` is an **append-only** audit log. Every
+  addition (`action: 'add'`) and revocation (`action: 'revoke'`) is
+  recorded with source and timestamp. Rows are never deleted or modified.
+- `scope_verified` is set to 1 only after a live API call positively proves
+  the project's scope membership; operations are denied while this is 0.
+- Security boundary (`team_id`, `folder_id`) is never stored in either
+  table — it lives in the workspace configuration only.
+
+See `docs/DESIGN_TOOL.md` §6 for full field semantics and §7 for the
+runtime authorization chain.
+
 ## 2. Invariants
 
-- Every `context_docs`, `compilations`, `task_outcomes`, `project_memory`
+- Every `context_docs`, `compilations`, `task_outcomes`, `project_memory`,
+  `design_tool_bindings`
   row carries (or is keyed by) a `project_id`; no query ever joins across
   projects. Isolation is enforced by construction (repositories take
   `projectId` as a mandatory argument) and covered by explicit isolation

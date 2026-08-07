@@ -148,3 +148,52 @@ Consent is never remembered across operations.
 - Secret transmission to the provider: **zero** — measured against the
   redaction fixture corpus (100% detection required before Phase 5 completes)
   and by design of the Context-sent gate for everything else.
+
+## 9. Design tool security (contract only — see `docs/DESIGN_TOOL.md`)
+
+Design tool integration (Figma) adds a new external-service boundary.
+The following rules apply at the contract level; runtime enforcement is
+defined in `docs/DESIGN_TOOL.md` §4 and §7.
+
+1. **Deny by default, fail closed.** Any Figma operation that cannot be
+   positively verified against the configured workspace security boundary
+   must be rejected. Unknown state is treated as denied.
+2. **Workspace once, bindings per project.** The security boundary
+   (`team_id`, `folder_id`) is an installation-level workspace
+   configuration. Individual projects bind to it and maintain their own
+   `approvedFileKeys`. Scope/security configuration is never duplicated
+   per project.
+3. **Positive scope verification required.** PromptForge must prove the
+   target file or creation target belongs to the configured `team_id` AND
+   `folder_id`. If the available Figma API or MCP cannot positively prove
+   membership, the operation must be denied. "Probably in scope" is not
+   sufficient.
+4. **Never escape scope.** Never access another WASK Team project/folder,
+   Drafts, team root, or any file whose `fileKey` is not in the project
+   binding's `approvedFileKeys`.
+5. **No permission changes.** Never share, publish, invite collaborators,
+   alter permissions, or change visibility.
+6. **No destructive folder operations.** Never delete, rename, or move the
+   configured Figma folder.
+7. **Identifier type safety.** `folder_id` (Figma), `projectId`
+   (PromptForge internal), and `fileKey` (Figma) are distinct types. Keep
+   them separate; require positive validation before any operation that
+   bridges them.
+8. **Local storage only.** The workspace configuration lives in app
+   settings. Project bindings and `approvedFileKeys` live in the central
+   SQLite database. Neither is ever written to project repositories.
+9. **Access token in keychain.** The Figma API access token follows the
+   same pattern as provider API keys (§2).
+10. **Fail-closed action policy with hard cost boundary.** Known
+    non-chargeable reads on the `autoRun` list may execute automatically.
+    Known non-chargeable sensitive mutations on the `approvalGated` list
+    require explicit per-operation user approval. AI/credit-consuming
+    operations on `alwaysBlock` are denied — user approval cannot override.
+    Unclassified operations (billing/credit impact unknown) are also
+    blocked. User approval may only apply to `approvalGated` operations;
+    the cost boundary is not waivable.
+11. **Mutable allowlist with audit trail.** `approvedFileKeys` is the
+    active (mutable) per-project allowlist — fileKeys may be added and
+    revoked. An append-only `design_tool_allowlist_audit` table records
+    every addition and revocation with source and timestamp for audit
+    purposes.

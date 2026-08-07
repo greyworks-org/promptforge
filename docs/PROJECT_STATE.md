@@ -43,6 +43,7 @@
 - Dev-environment keychain note (resolved 2026-08-06, kept for reference): each unsigned `tauri dev` rebuild changes the binary's code identity, so a keychain item created by an earlier build can fail re-authorization ("Keychain state unavailable." in Settings) until the key is re-saved from the current build. The fixture key was re-saved through the UI during manual verification. Optional remaining manual pass: replace/delete a key through the UI.
 - Phase 2 startup blocker (resolved 2026-08-06): tauri-plugin-sql's `sql:default` set grants only close/load/select — every migration `execute` was ACL-rejected at runtime, leaving an empty DB and "The project library could not be opened." Fix: explicit `sql:allow-execute` in `src-tauri/capabilities/default.json`; regression test in `tests/capabilities/sqlCapability.test.ts` guards the effective permission set. Unit tests could not catch this (better-sqlite3 bypasses the Tauri ACL); live app verification is the authoritative check for DB init.
 - Phase 3 runtime smoke complete. Remaining environment-dependent checks deferred to pre-release verification (not implementation blockers): native folder picker + wizard UI flow (requires macOS GUI), provider API draft quality (requires configured key). Both are covered at unit level (mock provider, IPC mocks, component tests).
+- 2026-08-07 · Design tool contract finalized — action policy: `autoRun` (known non-chargeable reads) / `approvalGated` (known non-chargeable mutations, user approval required) / `alwaysBlock` (AI, credit, destructive — user approval cannot override) / unclassified→block. Allowlist: mutable `approvedFileKeys` with append-only `design_tool_allowlist_audit` for revocation/add history. User approval may only apply to `approvalGated` ops; cost boundary is not waivable.
 
 ## Relevant files
 
@@ -51,7 +52,7 @@
 - src/redaction/blocklist.ts · src/templates/{instructions,contextDocs}.ts
 - src/db/{runner,migrate,appDb,pluginSqlRunner,betterSqliteRunner}.ts · src/db/migrations/0001_init.sql · src/db/repos/{projects,settingsRepo}.ts
 - src-tauri/src/{lib,keychain,provider}.rs · src-tauri/src/commands/{keychain,provider,fs}.rs · src-tauri/{tauri.conf.json,Cargo.toml} · src-tauri/capabilities/default.json
-- tools/mock-provider/server.mjs · docs/* · schemas/* · tests colocated (`src/**/*.test.ts*`, `tests/isolation/`, Rust `#[cfg(test)]`)
+- tools/mock-provider/server.mjs · docs/* (incl. `docs/DESIGN_TOOL.md`) · schemas/* · tests colocated (`src/**/*.test.ts*`, `tests/isolation/`, Rust `#[cfg(test)]`)
 
 ## Last tests & results
 
