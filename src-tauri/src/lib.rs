@@ -29,6 +29,8 @@ pub fn run() {
             commands::fs::fs_resolve_project_root,
             commands::fs::fs_read_anchor,
             commands::git::git_inspect,
+            commands::shell::open_terminal,
+            commands::shell::launch_cli,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PromptForge");
