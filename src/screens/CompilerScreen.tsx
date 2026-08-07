@@ -1,26 +1,25 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { ProviderProfile } from '../schemas/providerProfile';
 import { runPipeline, type PipelineState, type CompileRequest } from '../compiler/pipeline';
 import { BlockingQuestionsDialog } from '../components/BlockingQuestionsDialog';
+import { listContextDocs, readContextContent } from '../services/contextService';
 
 /**
  * Compiler screen (Phase 6).
  *
- * Raw request input, task type/depth/target selectors with defaults
- * Qwen/Auto/Auto. Orchestrates the full compilation pipeline and
- * displays results or blocking questions.
+ * Automatically loads context documents for the active project via
+ * Phase 4 contracts. Raw request input, task type/depth/target
+ * selectors. Orchestrates the full compilation pipeline.
  */
 
 export interface CompilerScreenProps {
   activeProfile: ProviderProfile | null;
   activeProjectId: string | null;
-  contextDocs: Array<{ relPath: string; content: string }>;
 }
 
 export function CompilerScreen({
   activeProfile,
   activeProjectId,
-  contextDocs,
 }: CompilerScreenProps) {
   const [rawRequest, setRawRequest] = useState('');
   const [taskType, setTaskType] = useState('auto');
@@ -30,6 +29,28 @@ export function CompilerScreen({
   const [state, setState] = useState<PipelineState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-load context docs from the active project.
+  const [contextDocs, setContextDocs] = useState<Array<{ relPath: string; content: string }>>([]);
+  const [contextLoading, setContextLoading] = useState(false);
+
+  useEffect(() => {
+    if (!activeProjectId) { setContextDocs([]); return; }
+    setContextLoading(true);
+    listContextDocs(activeProjectId)
+      .then(async (docs) => {
+        const loaded: Array<{ relPath: string; content: string }> = [];
+        for (const d of docs) {
+          try {
+            const content = await readContextContent(activeProjectId, d.relPath);
+            loaded.push({ relPath: d.relPath, content });
+          } catch { /* skip unreadable */ }
+        }
+        setContextDocs(loaded);
+      })
+      .catch(() => setContextDocs([]))
+      .finally(() => setContextLoading(false));
+  }, [activeProjectId]);
 
   const [answers, setAnswers] = useState<string[]>([]);
 
@@ -104,6 +125,15 @@ export function CompilerScreen({
           Describe what you need and PromptForge will compile it into an
           executable task for your coding agent.
         </p>
+        {activeProjectId && (
+          <p className="mt-1 text-xs text-zinc-400">
+            {contextLoading
+              ? 'Loading context documents…'
+              : contextDocs.length > 0
+                ? `${contextDocs.length} context document${contextDocs.length > 1 ? 's' : ''} available`
+                : 'No context documents found for this project.'}
+          </p>
+        )}
       </div>
 
       {/* Request input */}
@@ -203,16 +233,29 @@ export function CompilerScreen({
       )}
 
       {state && state.status === 'done' && state.taskSpec && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-4 text-sm">
-          <p className="font-medium text-green-800">Task compiled</p>
-          <p className="mt-1 text-green-700">
-            <strong>{state.taskSpec.task_id}</strong> — {state.taskSpec.objective}
-          </p>
-          <p className="mt-1 text-xs text-green-600">
-            Mode: {state.taskSpec.execution_mode} · Runtime:{' '}
-            {state.taskSpec.agent_runtime} · Risk: {state.taskSpec.risk_level}
-            · Calls: {state.callCount}
-          </p>
+        <div className="space-y-4">
+          <div className="rounded-md border border-green-200 bg-green-50 p-4 text-sm">
+            <p className="font-medium text-green-800">Task compiled</p>
+            <p className="mt-1 text-green-700">
+              <strong>{state.taskSpec.task_id}</strong> — {state.taskSpec.objective}
+            </p>
+            <p className="mt-1 text-xs text-green-600">
+              Mode: {state.taskSpec.execution_mode} · Runtime:{' '}
+              {state.taskSpec.agent_runtime} · Risk: {state.taskSpec.risk_level}
+              · Calls: {state.callCount}
+            </p>
+          </div>
+
+          {state.contextSent && (
+            <details className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs">
+              <summary className="cursor-pointer font-medium text-zinc-500">
+                Context sent ({state.contextSent.length} chars)
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-zinc-600 font-mono">
+                {state.contextSent}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 

@@ -158,7 +158,14 @@ export function ResultScreen({
         {onCopyPrompt && (
           <button
             type="button"
-            onClick={() => onCopyPrompt(rendered[activeTab as keyof typeof rendered] ?? '')}
+            onClick={() => {
+              const text =
+                activeTab === 'taskspec' ? JSON.stringify(taskSpec, null, 2) :
+                activeTab === 'context' ? contextSent :
+                activeTab === 'raw' ? rawRequest :
+                rendered[activeTab as 'claude' | 'qwen' | 'codex'] ?? '';
+              onCopyPrompt(text);
+            }}
             className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
           >
             Copy Prompt

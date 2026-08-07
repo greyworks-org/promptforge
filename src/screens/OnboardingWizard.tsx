@@ -15,6 +15,7 @@ import {
 } from '../services/consent';
 import { writeTextFile, fileExists, readTextFile } from '../services/projectFs';
 import { removeProject } from '../services/projectsService';
+import { syncContextRegistry } from '../services/contextService';
 import type { ProjectRecord } from '../db/repos/projects';
 
 type WizardStep =
@@ -317,6 +318,13 @@ export function OnboardingWizard({ onComplete }: { onComplete: (projectId: strin
       const project = await getProject(projectId);
       if (project) {
         await writeAnchor(projectId, project);
+      }
+
+      // Sync the context registry so the new docs are searchable.
+      try {
+        await syncContextRegistry(projectId);
+      } catch {
+        // Non-fatal: registry sync can be retried later.
       }
 
       setState((s) => ({ ...s, step: 'complete', createdProject: project }));
