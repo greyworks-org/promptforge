@@ -1,7 +1,9 @@
 {
   "task_type": "integration",
   "execution_mode": "standard",
-  "target_provider": "codex",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
   "objective": "Connect the billing provider so users can upgrade their plan.",
   "scope": ["Implement the plan upgrade flow"],
   "blocking_questions": [

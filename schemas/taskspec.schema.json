@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:promptforge:taskspec:1.0.0",
+  "$id": "urn:promptforge:taskspec:1.1.0",
   "title": "TaskSpec",
-  "description": "Canonical (enriched) provider-neutral task contract for PromptForge Local. This is NOT what the model outputs: the compiler model targets schemas/compiler-output.schema.json, and the client enrichs validated output with task_id, project_id and schema_version before validating against THIS schema. Only canonical TaskSpecs are rendered, stored, or exported. Mirrored 1:1 by the runtime Zod schema. See docs/TASKSPEC.md for field semantics and the full lifecycle.",
+  "description": "Canonical (enriched) provider-neutral task contract for PromptForge Local. This is NOT what the model outputs: the compiler model targets schemas/compiler-output.schema.json, and the client enriches validated output with task_id, project_id and schema_version before validating against THIS schema. Only canonical TaskSpecs are rendered, stored, or exported. Mirrored 1:1 by the runtime Zod schema. See docs/TASKSPEC.md for field semantics and the full lifecycle.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,7 +11,9 @@
     "project_id",
     "task_type",
     "execution_mode",
-    "target_provider",
+    "target_model",
+    "agent_runtime",
+    "execution_profile",
     "objective",
     "scope",
     "acceptance_criteria",
@@ -20,7 +22,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0.0",
+      "const": "1.1.0",
       "description": "Contract version. Client-owned: stamped during enrichment. Required in canonical TaskSpecs; must be absent from compiler output."
     },
     "task_id": {
@@ -49,7 +51,7 @@
         "testing",
         "deployment"
       ],
-      "description": "Classification of the requested work. Drives context-selection heuristics and renderer emphasis."
+      "description": "Classification of the requested work. Drives context-selection heuristics."
     },
     "execution_mode": {
       "enum": [
@@ -61,13 +63,25 @@
       ],
       "description": "Resolved depth of this compilation. The UI-level 'auto' value must be resolved to one of these before compilation; it never appears in a TaskSpec."
     },
-    "target_provider": {
+    "target_model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The AI model that will execute the task (e.g. 'deepseek-v4-pro', 'qwen-3.8-max', 'gpt-5.6-sol', 'opus-5'). This is the model identity, not the coding runtime."
+    },
+    "agent_runtime": {
       "enum": [
-        "qwen",
-        "codex",
-        "claude"
+        "claude-code",
+        "qwen-code",
+        "codex"
       ],
-      "description": "Default provider for copy/open/save actions. All three renderings are always produced; this field only selects the primary one."
+      "description": "The coding agent/runtime that will execute the task. Determines which instruction file(s) and renderer family to use. AGENTS.md is shared across all runtimes; runtime-specific instruction files (QWEN.md, CLAUDE.md) are separate."
+    },
+    "execution_profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Declarative profile key (e.g. 'deepseek-v4-pro-claude-code') that adapts working style only. Profiles control planning depth, exploration budget, context reuse, reasoning effort, test strategy, retry budget, progress verbosity, autonomy and guardrail strength. The task meaning is identical across all profiles."
     },
     "objective": {
       "type": "string",
@@ -217,7 +231,7 @@
     },
     "risk_level": {
       "enum": ["low", "medium", "high"],
-      "description": "Compiler's assessment of execution risk. Influences renderer emphasis on stop conditions and plan-first instructions."
+      "description": "Compiler's assessment of execution risk."
     },
     "confidence": {
       "type": "number",

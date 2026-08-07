@@ -22,6 +22,12 @@ pub fn run() {
             commands::keychain::keychain_has,
             commands::provider::provider_chat,
             commands::fs::fs_metadata,
+            commands::fs::fs_read_text,
+            commands::fs::fs_write_text,
+            commands::fs::fs_list_dir,
+            commands::fs::fs_exists,
+            commands::fs::fs_resolve_project_root,
+            commands::fs::fs_read_anchor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PromptForge");

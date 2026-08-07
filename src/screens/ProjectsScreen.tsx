@@ -25,6 +25,8 @@ export interface ProjectsScreenProps {
     getActiveProjectId?: typeof getActiveProjectId;
     pickDirectory?: typeof pickDirectory;
   };
+  /** Callback to launch the onboarding wizard (Phase 3). */
+  onStartOnboarding?: () => void;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -41,7 +43,7 @@ function friendlyError(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
-export function ProjectsScreen({ deps }: ProjectsScreenProps) {
+export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps) {
   const list = deps?.listProjects ?? listProjects;
   const register = deps?.registerProject ?? registerProject;
   const update = deps?.updateProject ?? updateProject;
@@ -192,16 +194,27 @@ export function ProjectsScreen({ deps }: ProjectsScreenProps) {
           </p>
         </div>
         {loadState === 'ready' && projects.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              clearMessages();
-              setAdding((v) => !v);
-            }}
-            className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
-          >
-            Add project
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                clearMessages();
+                setAdding((v) => !v);
+              }}
+              className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+            >
+              Add project
+            </button>
+            {onStartOnboarding && (
+              <button
+                type="button"
+                onClick={onStartOnboarding}
+                className="shrink-0 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Guided setup
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -299,13 +312,24 @@ export function ProjectsScreen({ deps }: ProjectsScreenProps) {
               Register a local project folder to start compiling prompts for it.
             </p>
             {!adding && (
-              <button
-                type="button"
-                onClick={() => setAdding(true)}
-                className="mt-4 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
-              >
-                Add your first project
-              </button>
+              <div className="flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="mt-4 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+                >
+                  Add your first project
+                </button>
+                {onStartOnboarding && (
+                  <button
+                    type="button"
+                    onClick={onStartOnboarding}
+                    className="mt-4 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Guided setup
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

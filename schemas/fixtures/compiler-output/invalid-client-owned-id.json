@@ -2,7 +2,9 @@
   "task_id": "TASK-2026-0042",
   "task_type": "bugfix",
   "execution_mode": "quick",
-  "target_provider": "qwen",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
   "objective": "Fix the login button not responding on the settings page.",
   "scope": ["Repair the login button click handler on the settings page"],
   "acceptance_criteria": [

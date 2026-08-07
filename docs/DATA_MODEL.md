@@ -85,9 +85,12 @@ CREATE TABLE compilations (
   raw_request              TEXT NOT NULL,
   task_type                TEXT NOT NULL,          -- enum, see TASKSPEC.md
   execution_mode           TEXT NOT NULL,          -- quick|standard|deep|review|plan
-  target_provider          TEXT NOT NULL,          -- qwen|codex|claude
-  provider_label           TEXT NOT NULL,          -- user-given name of the provider config
-  model_id                 TEXT NOT NULL,          -- model used (auditability; not a secret)
+  target_model             TEXT NOT NULL,          -- model identity (e.g. deepseek-v4-pro)
+  agent_runtime            TEXT NOT NULL,          -- claude-code|qwen-code|codex
+  execution_profile        TEXT NOT NULL,          -- profile key (e.g. deepseek-v4-pro-claude-code)
+  profile_version          TEXT NOT NULL DEFAULT '1.0.0',  -- version of the profile used
+  provider_label           TEXT NOT NULL,          -- user-given name of the compiler provider config
+  model_id                 TEXT NOT NULL,          -- compiler model used (auditability; not a secret)
   context_doc_ids_json     TEXT NOT NULL DEFAULT '[]',
   context_sent             TEXT NOT NULL,          -- exact redacted text sent (audit trail)
   blocking_rounds          INTEGER NOT NULL DEFAULT 0,
@@ -119,7 +122,7 @@ CREATE TABLE task_outcomes (
   scope_violation   INTEGER,                  -- 0/1/NULL(unknown)
   tests_passed      INTEGER,                  -- 0/1/NULL(unknown)
   completion_time_min INTEGER,
-  used_provider     TEXT,                     -- qwen|codex|claude (which one actually ran)
+  used_runtime      TEXT,                     -- claude-code|qwen-code|codex (which one actually ran)
   user_note         TEXT,
   recorded_at       TEXT NOT NULL
 );

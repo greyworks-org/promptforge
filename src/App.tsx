@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { ProjectsScreen } from './screens/ProjectsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { OnboardingWizard } from './screens/OnboardingWizard';
 
-type ScreenId = 'projects' | 'settings';
+type ScreenId = 'projects' | 'settings' | 'onboarding';
 
 function tabClass(active: boolean): string {
   return `rounded-md px-3 py-1 text-sm font-medium ${
@@ -12,6 +13,10 @@ function tabClass(active: boolean): string {
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>('projects');
+
+  const handleOnboardingComplete = useCallback((_projectId: string) => {
+    setScreen('projects');
+  }, []);
 
   return (
     <div className="min-h-screen">
@@ -38,11 +43,17 @@ export default function App() {
               </button>
             </nav>
           </div>
-          <span className="text-xs text-zinc-500">Phase 2 · Projects & settings</span>
+          <span className="text-xs text-zinc-500">Phase 3 · Onboarding</span>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-6 py-8">
-        {screen === 'projects' ? <ProjectsScreen /> : <SettingsScreen />}
+        {screen === 'projects' && (
+          <ProjectsScreen onStartOnboarding={() => setScreen('onboarding')} />
+        )}
+        {screen === 'settings' && <SettingsScreen />}
+        {screen === 'onboarding' && (
+          <OnboardingWizard onComplete={handleOnboardingComplete} />
+        )}
       </main>
     </div>
   );

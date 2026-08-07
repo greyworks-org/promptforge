@@ -357,9 +357,9 @@ configured) with the result inspected field-by-field.
 with checklist and actions.
 
 **Files & components.**
-- `src/renderers/renderQwen.ts`, `renderCodex.ts`, `renderClaude.ts`,
+- `src/renderers/renderClaudeCode.ts`, `renderQwenCode.ts`, `renderCodex.ts`,
   `shared.ts` (section formatting, assumption blocks, visual-reference block
-  placeholder)
+  placeholder), `src/profiles/` (typed execution profile constants)
 - `src/services/checklist.ts` (derives ✓/⚠ items from TaskSpec content —
   objective explicit, scope bounded, acceptance criteria exist, context
   included, destructive actions gated, assumptions flagged)
@@ -371,8 +371,8 @@ with checklist and actions.
 **Dependencies.** Phase 6.
 
 **Acceptance criteria.**
-1. Renderers match spec §7 shapes: Qwen (Read first + execution rules),
-  Codex (outcome/constraints/report), Claude (plan-first, risk emphasis).
+1. Renderers are profile-aware: runtime family (claude-code/qwen-code/codex) +
+  execution profile parameters. Profiles adapt working style only.
 2. Same TaskSpec → byte-identical output across runs (snapshot tests).
 3. Assumptions rendered verbatim with `Assumption:` prefix; stop conditions
   present per renderer rules; no invented content (property checked against
@@ -499,9 +499,9 @@ continue through Qwen Code, Codex or Claude Code from the same shared state
 - `src/handoff/progress.ts` (deterministic completed / partial / remaining
   classification: scope items vs commits since `base_commit` + uncommitted
   evidence; every claim labeled as evidence)
-- `src/handoff/renderQwen.ts`, `renderCodex.ts`, `renderClaude.ts` (short
-  continuation prompts per the ARCHITECTURE.md §11.4 contract; pure
-  functions)
+- `src/handoff/renderClaudeCode.ts`, `renderQwenCode.ts`, `renderCodex.ts` (short
+  continuation prompts per the ARCHITECTURE.md §11.4 contract; pure,
+  profile-aware functions)
 - UI: Hand off action (provider picker) on Projects + Result screens;
   continuation-prompt preview before copy/launch
 
@@ -511,8 +511,8 @@ infrastructure).
 **Acceptance criteria.**
 1. Handoff rendering issues **zero** provider calls (mock transport call
    count asserted = 0 across the whole handoff flow).
-2. Determinism: same HandoffSnapshot → byte-identical prompt, across
-   repeated runs, for all three providers (golden snapshots).
+2. Determinism: same HandoffSnapshot + same profile → byte-identical
+   continuation prompt, across repeated runs (golden snapshots).
 3. Preservation: the continuation prompt quotes scope, out-of-scope,
    confirmed decisions, acceptance criteria and stop conditions verbatim.
 4. Recovery: when uncommitted changes exist, the prompt contains the
@@ -559,7 +559,7 @@ consent: clipboard, open terminal at project, launch configured CLIs.
 **Dependencies.** Phase 10.
 
 **Acceptance criteria.**
-1. Copy works for all three provider tabs — compile prompts and handoff
+1. Copy works for all runtime tabs — compile prompts and handoff
    continuation prompts alike.
 2. Open in Terminal opens the project's repo directory.
 3. Launching a CLI requires the confirm dialog (binary + working directory

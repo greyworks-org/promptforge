@@ -7,9 +7,12 @@ document and the spec disagree, the disagreement is intentional and listed in
 
 ## 1. Design principles
 
-1. **One neutral contract, many renderings.** The model produces exactly one
-   TaskSpec JSON per compilation. Provider prompts are deterministic renderings
-   of it — never model outputs.
+1. **One neutral contract, profile-adapted rendering.** The model produces exactly
+   one TaskSpec JSON per compilation. Runtime-specific prompts are deterministic
+   renderings shaped by a declarative execution profile — the profile adapts
+   working style (planning depth, exploration, test strategy) but never task
+   meaning. The same TaskSpec with different profiles produces different HOW,
+   identical WHAT.
 2. **Local-first.** Everything the product knows lives in two places: the app
    SQLite database (app data dir) and each project's `.promptforge/` folder.
    The only network traffic is the provider API call.
@@ -38,10 +41,10 @@ on the same per-project state:
    stack, phase, task chain, decisions, blockers, relevant files, test
    results, git checkpoint references. Git and the project files remain the
    execution source of truth; memory observes, never overrides. Design: §11.
-3. **Agent Handoff** — lets any registered project continue through Qwen
-   Code, Codex or Claude Code from the same shared state: deterministic,
-   model-free continuation prompts built from memory + live git snapshot +
-   current task. Design: §11.
+3. **Agent Handoff** — lets any registered project continue through any
+   supported agent runtime (Claude Code, Qwen Code, Codex) from the same
+   shared state: deterministic, model-free continuation prompts built from
+   memory + live git snapshot + current task. Design: §11.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -79,7 +82,7 @@ they call application services.
 | `compilePipeline` | Orchestrates: context assembly → redaction → provider call → parse → validate → repair → enrich → render. Implements the retry state machine from spec §6. |
 | `contextService` | Document registry (hash, estimated tokens, summaries, tags), context auto-suggestion by task type, budget enforcement (spec §11). |
 | `redaction` | Pure, unit-tested redaction engine: blocked-file filter + secret pattern detection + redaction report (spec §13). See `docs/SECURITY.md`. |
-| `renderers` | `renderQwen`, `renderCodex`, `renderClaude`: pure functions TaskSpec → markdown prompt (spec §7). |
+| `renderers` | `renderClaudeCode`, `renderQwenCode`, `renderCodex`: pure functions (TaskSpec, ExecutionProfile) → markdown prompt. Profiles adapt working style only (§5). |
 | `historyService` | Records compilations and outcomes, aggregates usage (spec §14). |
 | `settingsService` | Non-secret app settings in SQLite; provider credentials routed to keychain via Rust. |
 | `checklist` | Derives the Result-screen verification checklist **from the TaskSpec itself** — never a model-issued score (spec §9). |
@@ -138,7 +141,7 @@ User request + selected context docs
             └─ invalid → user-visible error, nothing stored as a result
   → enrich (task_id, project_id, schema_version, local token estimate)
   → canonical TaskSpec validation (must pass; assert — client bug otherwise)
-  → renderers produce qwen/codex/claude prompts
+  → profile-aware renderers produce runtime-specific prompts
   → Result screen (tabs + checklist) → save compilation record
   → project memory task-chain updated (current task pointer)
 ```
@@ -172,29 +175,117 @@ in `docs/DEEPSEEK_INTEGRATION.md`.
 
 ## 5. Renderer design
 
-Renderers are pure functions over a validated TaskSpec:
+Renderers are pure functions over a validated TaskSpec and an execution profile:
 
 ```ts
-type Renderer = (task: TaskSpec, opts: RenderOptions) => string;
+type Renderer = (task: TaskSpec, profile: ExecutionProfile) => string;
 ```
 
-- `renderQwen`: explicit step structure, `Read first` section with
-  `.promptforge/context/...` paths, targeted-test execution rules (spec §7).
-- `renderCodex`: outcome-first, constraints, report list.
-- `renderClaude`: plan-first, risk and edge-case emphasis, stop conditions.
-- Shared helper for requirement/context sections; each renderer keeps its own
-  section order and wording so provider personality stays visible.
-- Snapshot tests (golden files) lock the output; changes to templates are
-  deliberate diffs.
+The `agent_runtime` field selects the renderer family; the `execution_profile`
+field selects the working-style parameters. Both are part of the TaskSpec
+(schemas § target_model / agent_runtime / execution_profile).
+
+### Runtime-specific renderer families
+
+- **claude-code** renderer: plan-first, risk and edge-case emphasis, stop
+  conditions, reads CLAUDE.md + AGENTS.md, `@AGENTS.md` in CLAUDE.md.
+- **qwen-code** renderer: explicit step structure, `Read first` section with
+  `.promptforge/context/...` paths, targeted-test execution rules, reads
+  QWEN.md + AGENTS.md.
+- **codex** renderer: outcome-first, constraints, report list, reads
+  AGENTS.md.
+
+### Execution profiles
+
+Profiles are declarative records that adapt **how** the agent works —
+never what the task means. The same TaskSpec rendered with different
+profiles produces different working instructions, identical scope.
+
+Every profile is versioned (`profile_version`). Historical compilation
+records include the profile version so past runs remain reproducible even
+when profile defaults change.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `planning_depth` | `"minimal" \| "standard" \| "thorough"` | Pre-execution planning depth |
+| `exploration_budget` | `"low" \| "medium" \| "high"` | Codebase exploration before acting |
+| `context_reuse` | `"conservative" \| "balanced" \| "aggressive"` | Context retention between turns |
+| `reasoning_effort` | `"low" \| "medium" \| "high" \| "maximum"` | Model reasoning depth |
+| `test_strategy` | `"none" \| "targeted" \| "full-suite"` | Tests to run during implementation (each change) |
+| `final_validation` | `"none" \| "quick" \| "full-gate"` | Validation to run once at completion |
+| `retry_budget` | `integer` | Max retries before escalating |
+| `progress_verbosity` | `"minimal" \| "normal" \| "detailed"` | Progress output level |
+| `autonomy` | `"low" \| "medium" \| "high"` | Independent action level |
+| `guardrail_strength` | `"relaxed" \| "standard" \| "strict"` | Stop-before-risk aggressiveness |
+
+`test_strategy` governs what the agent runs after each change during
+implementation (none / targeted unit tests / the full suite). `final_validation`
+governs the one-time gate at completion (none / a quick smoke check / the
+full typecheck + lint + test + build gauntlet). They are separate because a
+profile that runs targeted tests while iterating may still demand a full
+gate before declaring the task done.
+
+### Profile registry & compatibility
+
+Each profile definition binds a `target_model` + `agent_runtime` pair.
+The profile registry (a typed constant map in `src/profiles/`, Phase 6)
+validates at compile time that the model, runtime, and profile are
+compatible. Custom profiles can be added to the registry; the only
+constraint is that every profile must declare its model and runtime.
+
+```ts
+// Illustrative shape — implementation in Phase 6.
+interface ExecutionProfile {
+  profile_id: string;
+  profile_version: string;
+  target_model: string;
+  agent_runtime: 'claude-code' | 'qwen-code' | 'codex';
+  planning_depth: 'minimal' | 'standard' | 'thorough';
+  exploration_budget: 'low' | 'medium' | 'high';
+  context_reuse: 'conservative' | 'balanced' | 'aggressive';
+  reasoning_effort: 'low' | 'medium' | 'high' | 'maximum';
+  test_strategy: 'none' | 'targeted' | 'full-suite';
+  final_validation: 'none' | 'quick' | 'full-gate';
+  retry_budget: number;
+  progress_verbosity: 'minimal' | 'normal' | 'detailed';
+  autonomy: 'low' | 'medium' | 'high';
+  guardrail_strength: 'relaxed' | 'standard' | 'strict';
+}
+```
+
+### Canonical profiles (v1)
+
+| Profile ID | target_model | agent_runtime | Style (planning / exploration / context / reasoning / test / final / retry / verbosity / autonomy / guardrail) |
+| --- | --- | --- | --- |
+| `deepseek-v4-pro-claude-code` | deepseek-v4-pro | claude-code | standard / low / aggressive / high / targeted / full-gate / 2 / minimal / high / strict |
+| `qwen-3.8-max-qwen-code` | qwen-3.8-max | qwen-code | standard / medium / balanced / high / targeted / quick / 2 / normal / medium / standard |
+| `gpt-5.6-sol-high-codex` | gpt-5.6-sol | codex | minimal / low / conservative / medium / targeted / quick / 1 / normal / medium / standard |
+| `opus-5-high-claude-code` | opus-5 | claude-code | thorough / high / aggressive / high / full-suite / full-gate / 3 / detailed / high / strict |
+
+Profile definitions live in `src/profiles/` as typed constants (Phase 6).
+The compiler model selects `target_model`, `agent_runtime`, and
+`execution_profile` during compilation. The client validates the triple
+against the profile registry before accepting the model output. The
+renderer reads the profile and adapts prompt structure, not content.
+
+### Rendering rules
+
+- Shared helper for requirement/context sections; each runtime family keeps
+  its own section order and wording.
+- Snapshot tests (golden files) lock the output per (TaskSpec, profile) pair;
+  changes to templates are deliberate diffs.
+- Every compilation row records `profile_version` alongside
+  `execution_profile` so historical runs remain reproducible even when the
+  canonical profile definition is updated.
 
 ### Handoff renderers
 
 A second renderer family produces **continuation prompts** from a
-`HandoffSnapshot` (§11): `renderHandoffQwen`, `renderHandoffCodex`,
-`renderHandoffClaude`. Same rules as above — pure, deterministic,
-snapshot-tested — with two additions: they must stay short (hard token
-budget) and they must never require a model call: continuation is assembled
-entirely from local state.
+`HandoffSnapshot` (§11): `renderHandoffClaudeCode`, `renderHandoffQwenCode`,
+`renderHandoffCodex`. Same rules as above — pure, deterministic,
+snapshot-tested, profile-aware — with two additions: they must stay short
+(hard token budget) and they must never require a model call: continuation
+is assembled entirely from local state.
 
 ## 6. Capability matrix (required features → where they live)
 
@@ -203,7 +294,7 @@ entirely from local state.
 | Multiple isolated projects | `projects` registry + per-project `.promptforge/` + project-scoped queries only + isolation test suite |
 | Local-first storage | Central SQLite DB + project markdown files; network = provider calls only |
 | Configurable model ID / base URL / API key | Settings UI → SQLite (non-secret) + keychain (secret) + `ProviderConfig` |
-| Qwen / Codex / Claude renderers | `src/renderers/*` (pure functions + snapshot tests) |
+| Runtime-specific renderers | `src/renderers/*` (pure functions parameterized by execution profiles, snapshot-tested per profile) |
 | Secret redaction | `src/redaction/*` + "Context sent" view (`docs/SECURITY.md`) |
 | Context selection | `contextService` (hashes, tags, FTS5, task-type heuristics, budgets) |
 | Prompt history | `compilations` + `outcomes` tables, History screen |
@@ -361,7 +452,7 @@ so a moved/re-cloned folder re-links to its memory instead of forking it.
 HandoffSnapshot = memory record (stored)
                 + GitSnapshot (live: HEAD, status, diff stat)
                 + current canonical TaskSpec (if a task is in flight)
-                + target provider (qwen | codex | claude)
+                + execution_profile (from TaskSpec, determines runtime + style)
 ```
 
 Assembly is local-only. Building or rendering a handoff issues **zero

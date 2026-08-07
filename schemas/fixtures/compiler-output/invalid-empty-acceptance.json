@@ -1,7 +1,9 @@
 {
   "task_type": "feature",
   "execution_mode": "standard",
-  "target_provider": "claude",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
   "objective": "Authenticated users can view their AI credit usage.",
   "scope": ["Create the usage page"],
   "acceptance_criteria": [],

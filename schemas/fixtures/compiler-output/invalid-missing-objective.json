@@ -1,7 +1,9 @@
 {
   "task_type": "bugfix",
   "execution_mode": "quick",
-  "target_provider": "qwen",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
   "scope": ["Repair the login button click handler on the settings page"],
   "acceptance_criteria": [
     "Login button submits the form from the settings page"

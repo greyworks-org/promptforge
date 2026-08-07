@@ -1,14 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:promptforge:compiler-output:1.0.0",
+  "$id": "urn:promptforge:compiler-output:1.1.0",
   "title": "CompilerOutput",
-  "description": "Contract for the normalized output of the PromptForge compiler model. This schema is embedded in the compiler system prompt and is what the model must produce. It deliberately contains NO client-owned identifiers: task_id, project_id and schema_version are assigned by the client during enrichment and must not appear here. Unknown fields are rejected. Lifecycle: raw provider response → JSON extraction & normalization → validation against THIS schema → optional bounded repair (max 1) → client enrichment → validation against taskspec.schema.json → deterministic rendering → persistence. See docs/TASKSPEC.md.",
+  "description": "Contract for the normalized output of the PromptForge compiler model. This schema is embedded in the compiler system prompt and is what the model must produce. It deliberately contains NO client-owned identifiers: task_id, project_id and schema_version are assigned by the client during enrichment and must not appear here. Unknown fields are rejected. Lifecycle: raw provider response → JSON extraction & normalization → validation against THIS schema → optional bounded repair (max 1) → client enrichment → validation against taskspec.schema.json → profile-aware rendering → persistence. See docs/TASKSPEC.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "task_type",
     "execution_mode",
-    "target_provider",
+    "target_model",
+    "agent_runtime",
+    "execution_profile",
     "objective",
     "scope",
     "acceptance_criteria",
@@ -30,7 +32,7 @@
         "testing",
         "deployment"
       ],
-      "description": "Classification of the requested work. Drives context-selection heuristics and renderer emphasis."
+      "description": "Classification of the requested work. Drives context-selection heuristics."
     },
     "execution_mode": {
       "enum": [
@@ -42,13 +44,25 @@
       ],
       "description": "Resolved depth of this compilation. The UI-level 'auto' value is resolved before compilation and never appears here."
     },
-    "target_provider": {
+    "target_model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The AI model that will execute the task (e.g. 'deepseek-v4-pro', 'qwen-3.8-max', 'gpt-5.6-sol', 'opus-5'). This is the model identity, not the coding runtime."
+    },
+    "agent_runtime": {
       "enum": [
-        "qwen",
-        "codex",
-        "claude"
+        "claude-code",
+        "qwen-code",
+        "codex"
       ],
-      "description": "Default provider for copy/open/save actions. All three renderings are always produced; this field only selects the primary one."
+      "description": "The coding agent/runtime that will execute the task. Determines which instruction file(s) and renderer family to use. AGENTS.md is shared across all runtimes; runtime-specific instruction files (QWEN.md, CLAUDE.md) are separate."
+    },
+    "execution_profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Declarative profile key (e.g. 'deepseek-v4-pro-claude-code') that adapts working style — planning depth, exploration budget, context reuse, reasoning effort, test strategy, retry budget, progress verbosity, autonomy, guardrail strength. Profiles adapt HOW the agent works, never WHAT the task means. The task meaning is identical across all profiles."
     },
     "objective": {
       "type": "string",
@@ -198,7 +212,7 @@
     },
     "risk_level": {
       "enum": ["low", "medium", "high"],
-      "description": "Compiler's assessment of execution risk. Influences renderer emphasis on stop conditions and plan-first instructions."
+      "description": "Compiler's assessment of execution risk."
     },
     "confidence": {
       "type": "number",

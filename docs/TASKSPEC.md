@@ -30,7 +30,7 @@ raw provider response (text)
   4. canonical validate    against taskspec.schema.json — enrichment is
                            deterministic, so this must always pass (assert;
                            a failure is a client bug, not a model error)
-  5. render                renderQwen / renderCodex / renderClaude (pure functions)
+  5. render                profile-aware renderers (pure functions: TaskSpec + ExecutionProfile → prompt)
   6. persist               compilations.taskspec_json; on "Save Task":
                            .promptforge/tasks/; project memory task-chain updated
 ```
@@ -51,7 +51,9 @@ compiler output; **shared** = model proposes, client may override.
 | `project_id` | string | canonical: **yes** · compiler output: must be absent | client | Isolation boundary; assigned from the active project during enrichment. |
 | `task_type` | enum | **yes** | model | Classification of the work; drives context heuristics. |
 | `execution_mode` | enum | **yes** | shared | Resolved depth. `auto` is a UI concept and never valid here. |
-| `target_provider` | enum | **yes** | shared | Default provider for copy/open actions; all three renderings always exist. |
+| `target_model` | string 1–128 | **yes** | shared | AI model that will execute (e.g. `deepseek-v4-pro`, `qwen-3.8-max`). Model identity, not runtime. |
+| `agent_runtime` | enum | **yes** | shared | Coding agent/runtime: `claude-code`, `qwen-code`, `codex`. Determines renderer family and instruction files. |
+| `execution_profile` | string 1–128 | **yes** | shared | Profile key (e.g. `deepseek-v4-pro-claude-code`) resolving to a versioned profile definition. Adapts working style only; never changes task meaning. The profile registry validates model+runtime+profile compatibility at compile time. |
 | `objective` | string 10–500 | **yes** | model | One explicit outcome sentence. |
 | `user_value` | string ≤500 | no | model | Why it matters. |
 | `current_state` | string[] | no | model | Known facts only (spec rule 3: facts ≠ assumptions). |
@@ -77,7 +79,7 @@ compiler output; **shared** = model proposes, client may override.
 task_type:       planning | feature | ui | backend | database | integration |
                  bugfix | refactor | review | security | testing | deployment
 execution_mode:  quick | standard | deep | review | plan
-target_provider: qwen | codex | claude
+agent_runtime:   claude-code | qwen-code | codex
 risk_level:      low | medium | high
 ```
 
@@ -150,7 +152,9 @@ difference is exactly the three client-owned fields:
 {
   "task_type": "feature",
   "execution_mode": "standard",
-  "target_provider": "qwen",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
   "objective": "Authenticated users can view their AI credit usage.",
   "user_value": "Users understand remaining usage before reaching the limit.",
   "current_state": [
