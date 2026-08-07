@@ -201,7 +201,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
                 clearMessages();
                 setAdding((v) => !v);
               }}
-              className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+              className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
             >
               Add project
             </button>
@@ -268,7 +268,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
               type="button"
               onClick={() => void onAdd()}
               disabled={busy !== 'idle' || folderPath.trim() === ''}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
             >
               {busy === 'adding' ? 'Adding…' : 'Register project'}
             </button>
@@ -316,7 +316,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
                 <button
                   type="button"
                   onClick={() => setAdding(true)}
-                  className="mt-4 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+                  className="mt-4 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
                 >
                   Add your first project
                 </button>

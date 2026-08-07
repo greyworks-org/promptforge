@@ -30,6 +30,7 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
   const [page, setPage] = useState(0);
   const [outcomeFor, setOutcomeFor] = useState<string | null>(null);
   const [existingOutcome, setExistingOutcome] = useState<OutcomeRecord | null>(null);
+  const [outcomes, setOutcomes] = useState<Map<string, OutcomeRecord>>(new Map());
 
   const PAGE_SIZE = 20;
 
@@ -40,6 +41,15 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
     setHistory(h);
     if (deps.getUsage) setUsage(await deps.getUsage(projectId));
     if (deps.getRuntimeUsage) setRuntimeUsage(await deps.getRuntimeUsage(projectId));
+    // Load outcomes for visible history rows.
+    if (deps.getOutcome) {
+      const map = new Map<string, OutcomeRecord>();
+      for (const c of h) {
+        const o = await deps.getOutcome(c.id);
+        if (o) map.set(c.id, o);
+      }
+      setOutcomes(map);
+    }
     setLoading(false);
   }, [projectId, page, deps]);
 
@@ -130,6 +140,15 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
             <span className="text-xs font-mono text-zinc-400">{c.id}</span>
             <div className="flex items-center gap-2">
               <span className={statusBadge(c.status)}>{c.status}</span>
+              {outcomes.get(c.id) && (
+                <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+                  outcomes.get(c.id)!.completionResult === 'success' ? 'bg-green-100 text-green-700' :
+                  outcomes.get(c.id)!.completionResult === 'failure' ? 'bg-red-100 text-red-700' :
+                  'bg-amber-100 text-amber-700'
+                }`}>
+                  {outcomes.get(c.id)!.completionResult}
+                </span>
+              )}
               <span className="text-xs text-zinc-400">{c.createdAt.slice(0, 16).replace('T', ' ')}</span>
             </div>
           </div>
