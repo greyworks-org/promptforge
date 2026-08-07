@@ -35,10 +35,10 @@ beforeEach(async () => {
   doc.run('doc-b', 'project-beta', '.promptforge/context/PRODUCT.md', 'Beta product', 'hash-b', 10, NOW);
 
   const compilation = sqlite.prepare(
-    'INSERT INTO compilations (id, project_id, created_at, raw_request, task_type, execution_mode, target_provider, provider_label, model_id, context_sent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    `INSERT INTO compilations (id, project_id, created_at, raw_request, task_type, execution_mode, target_model, agent_runtime, execution_profile, profile_version, provider_label, model_id, context_sent, status) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '1.0.0', ?, ?, ?, ?)`,
   );
-  compilation.run('comp-a', 'project-alpha', NOW, 'raw a', 'feature', 'standard', 'qwen', 'Default', 'm', 'sent a', 'done');
-  compilation.run('comp-b', 'project-beta', NOW, 'raw b', 'feature', 'standard', 'qwen', 'Default', 'm', 'sent b', 'done');
+  compilation.run('comp-a', 'project-alpha', NOW, 'raw a', 'feature', 'standard', 'Default', 'm', 'sent a', 'done');
+  compilation.run('comp-b', 'project-beta', NOW, 'raw b', 'feature', 'standard', 'Default', 'm', 'sent b', 'done');
 
   const outcome = sqlite.prepare(
     'INSERT INTO task_outcomes (compilation_id, completion_result, recorded_at) VALUES (?, ?, ?)',
