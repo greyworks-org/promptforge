@@ -19,5 +19,12 @@
         "minHeight": 600
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "app",
+    "icon": [
+      "icons/icon.png"
+    ]
   }
 }
