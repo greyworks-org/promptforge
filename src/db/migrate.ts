@@ -113,7 +113,23 @@ export async function runMigrations(
     await runner.execute('BEGIN');
     try {
       for (const statement of splitSqlStatements(migration.sql)) {
-        await runner.execute(statement);
+        try {
+          await runner.execute(statement);
+        } catch (stmtErr: unknown) {
+          const msg = stmtErr instanceof Error ? stmtErr.message : String(stmtErr);
+          // Tolerate already-applied DDL: duplicate column, missing column
+          // for drop/rename, or already-renamed column.
+          if (
+            msg.includes('duplicate column name') ||
+            msg.includes('no such column') ||
+            msg.includes('duplicate column') ||
+            (msg.includes('already exists') && statement.toUpperCase().includes('CREATE'))
+          ) {
+            // Schema already in desired state — statement is harmless to skip.
+            continue;
+          }
+          throw stmtErr;
+        }
       }
       await runner.execute('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)', [
         migration.version,

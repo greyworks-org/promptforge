@@ -88,6 +88,78 @@ export function requirementsBlock(reqs: TaskSpec['requirements']): string {
   return lines.join('\n');
 }
 
+/**
+ * Derive risk-based verification guidance from task type.
+ * Tells the agent what kind of verification is proportional to the task.
+ * Uses only existing TaskSpec fields — no new schema required.
+ */
+export function verificationGuidanceBlock(
+  taskType: string,
+  riskLevel: string,
+  executionMode: string,
+): string {
+  const lines: string[] = ['## Verification'];
+
+  // Base verification principles (all task types).
+  lines.push('');
+  lines.push('Before reporting completion, verify the change at its real boundary:');
+  lines.push('');
+
+  // Task-type-specific guidance.
+  const guidance: string[] = [];
+
+  switch (taskType) {
+    case 'database':
+    case 'backend':
+      guidance.push('- Verify against fresh state, existing/legacy state, and interrupted or partially-applied state.');
+      guidance.push('- Test migration/rollback paths.');
+      break;
+    case 'feature':
+    case 'ui':
+      guidance.push('- Verify the new state, existing state, cancel/retry/error paths, and the real runtime flow.');
+      guidance.push('- If the feature changes a user-visible workflow, test the actual UI path.');
+      break;
+    case 'bugfix':
+      guidance.push('- Reproduce the original defect first, then verify it is resolved.');
+      guidance.push('- Test the exact scenario that was broken — do not rely on unit tests alone.');
+      break;
+    case 'integration':
+      guidance.push('- Verify the integration boundary end-to-end.');
+      guidance.push('- Confirm the producer works, the consumer is actually connected, and the user-accessible path functions.');
+      break;
+    case 'refactor':
+      guidance.push('- Verify behavior is preserved at every affected call site.');
+      guidance.push('- Run existing regression tests before and after.');
+      break;
+    case 'security':
+      guidance.push('- Test the expected path, the adversarial/negative case, and cross-project or escape attempts.');
+      guidance.push('- Verify the trust boundary cannot be bypassed.');
+      break;
+    case 'testing':
+    case 'deployment':
+      guidance.push('- Verify the change against a representative real-world fixture or environment.');
+      guidance.push('- Confirm the behavior matches the spec in the actual deployment configuration.');
+      break;
+    default:
+      guidance.push('- Verify the changed behavior at its real integration boundary, not only through unit tests.');
+      guidance.push('- Identify and test the highest-risk failure or existing-state case.');
+  }
+
+  // Risk-level additions.
+  if (riskLevel === 'high') {
+    guidance.push('- This task is classified as high risk. Verify all edge cases, failure modes, and recovery paths.');
+  }
+  if (executionMode === 'deep') {
+    guidance.push('- Deep mode: verify the full pipeline including critic-suggested changes.');
+  }
+
+  lines.push(...guidance);
+  lines.push('');
+  lines.push('Unit tests + typecheck + build alone are not sufficient. Verify at the real boundary.');
+
+  return lines.join('\n');
+}
+
 /** Format edge cases. */
 export function edgeCasesBlock(items: string[]): string {
   if (items.length === 0) return '';

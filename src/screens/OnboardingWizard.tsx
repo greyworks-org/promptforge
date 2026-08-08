@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
-import { pickDirectory } from '../ipc';
+import { useState, useCallback, useEffect } from 'react';
+import { pickDirectory, invokeIpc } from '../ipc';
 import { registerProject, listProjects, updateProject, getProject } from '../services/projectsService';
+import { resolveProjectRoot } from '../services/projectFs';
 import { loadProfile } from '../services/settingsService';
 import { scanRepository, type ScanResult } from '../services/repoScan';
 import { readAnchor, writeAnchor, findReLinkCandidate, ANCHOR_REL_PATH, type AnchorPayload } from '../services/anchor';
@@ -62,7 +63,11 @@ interface WizardState {
   createdProject: ProjectRecord | null;
 }
 
-export function OnboardingWizard({ onComplete }: { onComplete: (projectId: string) => void }) {
+export function OnboardingWizard({ onComplete, existingProjectId }: {
+  onComplete: (projectId: string) => void;
+  /** When set, skip folder selection and start directly for this registered project. */
+  existingProjectId?: string | null;
+}) {
   const [state, setState] = useState<WizardState>({
     step: 'select-folder',
     error: null,
@@ -86,6 +91,40 @@ export function OnboardingWizard({ onComplete }: { onComplete: (projectId: strin
     }
   }, []);
 
+  // Auto-start for existing registered projects: resolve root, scan directly.
+  useEffect(() => {
+    if (!existingProjectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const root = await resolveProjectRoot(existingProjectId);
+        if (cancelled) return;
+        const scanResult = await scanRepository(existingProjectId);
+        if (cancelled) return;
+        const anchor = await readAnchor(existingProjectId);
+        if (cancelled) return;
+        setState((s) => ({
+          ...s,
+          step: 'review-scan',
+          folderPath: root,
+          projectId: existingProjectId,
+          isNewRegistration: false,
+          scanResult,
+          anchorPayload: anchor,
+        }));
+      } catch (err) {
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            error: `Could not start onboarding: ${err instanceof Error ? err.message : String(err)}`,
+            step: 'select-folder',
+          }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [existingProjectId]);
+
   const setError = useCallback((error: string) => {
     setState((s) => {
       cleanup(s);
@@ -108,9 +147,19 @@ export function OnboardingWizard({ onComplete }: { onComplete: (projectId: strin
     setState((s) => ({ ...s, step: 'scanning', folderPath: path, error: null }));
 
     try {
+      // Canonicalize the selected path for comparison.
+      let canonicalPath = path;
+      try {
+        const meta = await invokeIpc<{ canonicalPath: string | null }>('fs_metadata', { path });
+        if (meta.canonicalPath) canonicalPath = meta.canonicalPath;
+      } catch { /* use raw path */ }
+
       // Check for existing anchor (re-link) BEFORE registration.
       const existingProjects = await listProjects();
       const reLink = await findReLinkCandidate(path, existingProjects);
+
+      // Check if this folder is already registered at its current location.
+      const existingByPath = existingProjects.find((p) => p.repoPath === canonicalPath);
 
       let projectId: string;
       let isNew = true;
@@ -120,8 +169,10 @@ export function OnboardingWizard({ onComplete }: { onComplete: (projectId: strin
         await updateProject(reLink.id, { name: reLink.name });
         projectId = reLink.id;
         isNew = false;
-        // The anchor at the new path still points to the same projectId.
-        // updateProject only touches the DB row; anchor write happens below.
+      } else if (existingByPath) {
+        // Already registered at this path — use the existing projectId.
+        projectId = existingByPath.id;
+        isNew = false;
       } else {
         // New project: register so all subsequent fs ops are scoped.
         const project = await registerProject({ folderPath: path });

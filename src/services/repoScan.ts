@@ -16,6 +16,12 @@ const ROOT_IDENTITY_FILES = [
   'package.json', 'Cargo.toml', 'go.mod',
   'pyproject.toml', 'setup.py', 'Makefile',
   'docker-compose.yml', 'docker-compose.yaml', 'Dockerfile',
+  'Package.swift',
+];
+
+/** Directory names that signal project identity at root level. */
+const ROOT_IDENTITY_DIRS = [
+  '.xcodeproj',
 ];
 
 const TECH_INDICATOR_FILES = [
@@ -29,6 +35,15 @@ const TECH_INDICATOR_FILES = [
   '.eslintrc.js', '.eslintrc.json',
   'prettier.config.js', 'prettier.config.ts', '.prettierrc',
   'firebase.json', 'vercel.json', 'netlify.toml', 'wrangler.toml',
+  // Xcode / Swift
+  'Info.plist', 'project.pbxproj',
+];
+
+/** File extensions that indicate technology choices. */
+const TECH_INDICATOR_EXTENSIONS = [
+  '.swift',
+  '.xcconfig',
+  '.entitlements',
 ];
 
 export interface DiscoveredFile {
@@ -102,6 +117,10 @@ export async function scanRepository(projectId: string): Promise<ScanResult> {
       }
 
       if (entry.isDir) {
+        // Recognise Xcode projects and other identity directories at root.
+        if (item.depth === 0 && ROOT_IDENTITY_DIRS.some((d) => entry.name.endsWith(d))) {
+          identityFiles.push({ relPath, sizeBytes: entry.sizeBytes, preview: null });
+        }
         if (item.depth < MAX_SCAN_DEPTH) {
           queue.push({ relDir: relPath, depth: item.depth + 1 });
         }
@@ -131,8 +150,11 @@ export async function scanRepository(projectId: string): Promise<ScanResult> {
         identityFiles.push(discovered);
       }
 
-      if (item.depth <= 2 && TECH_INDICATOR_FILES.some(
-        (t) => entry.name === t || entry.name.startsWith(`${t}/`),
+      if (item.depth <= 2 && (
+        TECH_INDICATOR_FILES.some(
+          (t) => entry.name === t || entry.name.startsWith(`${t}/`),
+        ) ||
+        TECH_INDICATOR_EXTENSIONS.some((ext) => entry.name.endsWith(ext))
       )) {
         techIndicators.push(discovered);
       }

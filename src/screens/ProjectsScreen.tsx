@@ -25,8 +25,9 @@ export interface ProjectsScreenProps {
     getActiveProjectId?: typeof getActiveProjectId;
     pickDirectory?: typeof pickDirectory;
   };
-  /** Callback to launch the onboarding wizard (Phase 3). */
-  onStartOnboarding?: () => void;
+  /** Callback to launch the onboarding wizard (Phase 3).
+   *  Pass the active project ID when an existing project should be onboarded. */
+  onStartOnboarding?: (projectId?: string) => void;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -208,7 +209,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
             {onStartOnboarding && (
               <button
                 type="button"
-                onClick={onStartOnboarding}
+                onClick={() => onStartOnboarding(activeId ?? undefined)}
                 className="shrink-0 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 Guided setup
@@ -323,7 +324,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
                 {onStartOnboarding && (
                   <button
                     type="button"
-                    onClick={onStartOnboarding}
+                    onClick={() => onStartOnboarding()}
                     className="mt-4 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                   >
                     Guided setup

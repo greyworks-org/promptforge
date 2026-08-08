@@ -12,6 +12,7 @@ import {
   testInstructionsBlock,
   testPlanBlock,
   finalReportBlock,
+  verificationGuidanceBlock,
   guardrailBlock,
   retryBlock,
   explorationBlock,
@@ -119,6 +120,8 @@ export function renderCodex(
     sections.push('');
   }
 
+      sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
+      sections.push("");
   // Final report
   sections.push(`Complete the implementation, run the relevant validations, and report:`);
   sections.push(`- files changed`);
@@ -129,7 +132,8 @@ export function renderCodex(
   sections.push('');
 
   if (task.final_report && task.final_report.length > 0) {
-    sections.push(finalReportBlock(task.final_report));
+
+      sections.push(finalReportBlock(task.final_report));
     sections.push('');
   }
 

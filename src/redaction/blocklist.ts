@@ -26,6 +26,7 @@ export const BLOCKED_DIR_PATTERNS = [
   '.git',
   'dist',
   'build',
+  '.build',
   '.next',
   'coverage',
   '__pycache__',
@@ -36,6 +37,10 @@ export const BLOCKED_DIR_PATTERNS = [
   'target',
   'debug',
   'release',
+  'DerivedData',
+  'xcuserdata',
+  'outputs',
+  'work',
 ] as const;
 
 /** Paths relative to project root that are never included. */

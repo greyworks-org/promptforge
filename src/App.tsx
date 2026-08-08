@@ -57,12 +57,16 @@ export default function App() {
       <main className="mx-auto max-w-3xl px-6 py-8">
         {screen === 'projects' && (
           <ProjectsScreen
-            onStartOnboarding={() => setScreen('onboarding')}
+            onStartOnboarding={(projectId) => {
+              if (projectId) setActiveProjectId(projectId);
+              setScreen('onboarding');
+            }}
           />
         )}
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'onboarding' && (
           <OnboardingWizard
+            existingProjectId={activeProjectId}
             onComplete={(pid) => { setActiveProjectId(pid); setScreen('projects'); }}
           />
         )}

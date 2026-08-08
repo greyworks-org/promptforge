@@ -12,6 +12,7 @@ import {
   testInstructionsBlock,
   testPlanBlock,
   finalReportBlock,
+  verificationGuidanceBlock,
   guardrailBlock,
   retryBlock,
   explorationBlock,
@@ -141,9 +142,12 @@ export function renderQwenCode(
     sections.push('');
   }
 
+      sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
+      sections.push("");
   // Final report
   if (task.final_report && task.final_report.length > 0) {
-    sections.push(finalReportBlock(task.final_report));
+
+      sections.push(finalReportBlock(task.final_report));
     sections.push('');
   }
 
