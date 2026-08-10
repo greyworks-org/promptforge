@@ -5,12 +5,13 @@ import { OnboardingWizard } from './screens/OnboardingWizard';
 import { CompilerScreen } from './screens/CompilerScreen';
 import { ResultScreen } from './screens/ResultScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
+import { HandoffView } from './components/HandoffView';
 import type { TaskSpec } from './schemas/taskspec';
 import type { ProviderProfile } from './schemas/providerProfile';
 import { PROFILES } from './profiles/registry';
 import { loadProfile } from './services/settingsService';
 
-type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history';
+type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history' | 'handoff';
 
 function tabClass(active: boolean): string {
   return `rounded-md px-3 py-1 text-sm font-medium ${
@@ -21,6 +22,7 @@ function tabClass(active: boolean): string {
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>('projects');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [handoffProjectName, setHandoffProjectName] = useState('');
   const taskSpec: TaskSpec | null = null;
   const contextSent = '';
   const rawRequest = '';
@@ -61,6 +63,11 @@ export default function App() {
               if (projectId) setActiveProjectId(projectId);
               setScreen('onboarding');
             }}
+            onContinue={(projectId, projectName) => {
+              setActiveProjectId(projectId);
+              setHandoffProjectName(projectName);
+              setScreen('handoff');
+            }}
           />
         )}
         {screen === 'settings' && <SettingsScreen />}
@@ -94,6 +101,13 @@ export default function App() {
         )}
         {screen === 'history' && !activeProjectId && (
           <p className="text-sm text-zinc-500">Select a project first.</p>
+        )}
+        {screen === 'handoff' && activeProjectId && (
+          <HandoffView
+            projectId={activeProjectId}
+            projectName={handoffProjectName || activeProjectId}
+            onClose={() => setScreen('projects')}
+          />
         )}
       </main>
     </div>

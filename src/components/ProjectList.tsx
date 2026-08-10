@@ -17,6 +17,7 @@ export interface ProjectListProps {
   onAskRemove: (projectId: string) => void;
   onConfirmRemove: (projectId: string) => void;
   onCancelRemove: () => void;
+  onContinue?: (projectId: string, projectName: string) => void;
 }
 
 const secondaryButton =
@@ -141,6 +142,16 @@ export function ProjectList(props: ProjectListProps) {
                       disabled={busy}
                     >
                       Set active
+                    </button>
+                  )}
+                  {isActive && props.onContinue && (
+                    <button
+                      type="button"
+                      className={secondaryButton}
+                      onClick={() => props.onContinue!(project.id, project.name)}
+                      disabled={busy}
+                    >
+                      Continue
                     </button>
                   )}
                   <button

@@ -25,9 +25,10 @@ export interface ProjectsScreenProps {
     getActiveProjectId?: typeof getActiveProjectId;
     pickDirectory?: typeof pickDirectory;
   };
-  /** Callback to launch the onboarding wizard (Phase 3).
-   *  Pass the active project ID when an existing project should be onboarded. */
+  /** Callback to launch the onboarding wizard (Phase 3). */
   onStartOnboarding?: (projectId?: string) => void;
+  /** Callback to generate a handoff for an existing project. */
+  onContinue?: (projectId: string, projectName: string) => void;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -44,7 +45,7 @@ function friendlyError(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
-export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps) {
+export function ProjectsScreen({ deps, onStartOnboarding, onContinue }: ProjectsScreenProps) {
   const list = deps?.listProjects ?? listProjects;
   const register = deps?.registerProject ?? registerProject;
   const update = deps?.updateProject ?? updateProject;
@@ -345,6 +346,7 @@ export function ProjectsScreen({ deps, onStartOnboarding }: ProjectsScreenProps)
             editMilestone={editMilestone}
             confirmingRemoveId={confirmingRemoveId}
             onSetActive={(id) => void onSetActive(id)}
+            onContinue={onContinue}
             onStartEdit={onStartEdit}
             onEditNameChange={setEditName}
             onEditMilestoneChange={setEditMilestone}

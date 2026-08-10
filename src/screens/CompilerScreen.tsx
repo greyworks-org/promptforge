@@ -3,6 +3,8 @@ import type { ProviderProfile } from '../schemas/providerProfile';
 import { runPipeline, type PipelineState, type CompileRequest } from '../compiler/pipeline';
 import { BlockingQuestionsDialog } from '../components/BlockingQuestionsDialog';
 import { listContextDocs, readContextContent } from '../services/contextService';
+import { recordCompilation } from '../services/historyService';
+import { recordCompileSuccess } from '../services/memoryService';
 
 /**
  * Compiler screen (Phase 6).
@@ -93,8 +95,28 @@ export function CompilerScreen({
 
       if (result.status === 'awaiting_answers') {
         // Don't clear answers — accumulate for re-run.
-      } else if (result.status === 'done') {
+      } else if (result.status === 'done' && result.taskSpec && activeProjectId) {
         setAnswers([]);
+        // Persist task as active project work.
+        try {
+          await recordCompilation({
+            projectId: activeProjectId,
+            rawRequest: rawRequest.trim(),
+            taskType: result.taskSpec.task_type,
+            executionMode: result.taskSpec.execution_mode,
+            targetModel: result.taskSpec.target_model,
+            agentRuntime: result.taskSpec.agent_runtime,
+            executionProfile: result.taskSpec.execution_profile,
+            providerLabel: activeProfile?.label ?? 'unknown',
+            modelId: activeProfile?.modelId ?? 'unknown',
+            contextDocIds: [],
+            contextSent: result.contextSent,
+            status: 'done',
+          });
+          await recordCompileSuccess(activeProjectId, result.taskSpec.task_id);
+        } catch {
+          // Non-fatal — task persists in pipeline state.
+        }
       }
     } catch (err) {
       setError(`Compilation failed: ${err instanceof Error ? err.message : String(err)}`);
