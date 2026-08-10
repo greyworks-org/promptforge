@@ -5,7 +5,8 @@ import { resolveProjectRoot } from '../services/projectFs';
 import { loadProfile } from '../services/settingsService';
 import { scanRepository, type ScanResult } from '../services/repoScan';
 import { readAnchor, writeAnchor, findReLinkCandidate, ANCHOR_REL_PATH, type AnchorPayload } from '../services/anchor';
-import { draftProjectProfile, type DraftResult } from '../services/profileDraft';
+import { draftProjectProfile, type DraftRequest, type DraftResult } from '../services/profileDraft';
+import { getGitSnapshot } from '../services/gitState';
 import { allTemplates, type InstructionTemplate } from '../templates/instructions';
 import { allContextDocTemplates } from '../templates/contextDocs';
 import {
@@ -214,11 +215,57 @@ export function OnboardingWizard({ onComplete, existingProjectId }: {
       }
 
       const scanResult = state.scanResult!;
+      const isExisting = !state.isNewRegistration;
+
+      // Gather richer evidence for existing projects.
+      let existingProject: DraftRequest['existingProject'] = undefined;
+
+      if (isExisting && state.folderPath) {
+        // Git state — live from Phase 9, resolved via registry.
+        let recentHistory: string[] = [];
+        let uncommittedDetail = '';
+        try {
+          const git = await getGitSnapshot(state.projectId!);
+          if (git.isRepo) {
+            if (git.head) recentHistory.push(git.head.subject);
+            if (git.uncommitted.diffStat) {
+              uncommittedDetail = git.uncommitted.diffStat;
+              const changed = [
+                ...git.uncommitted.staged,
+                ...git.uncommitted.unstaged,
+              ].slice(0, 10);
+              if (changed.length > 0) {
+                uncommittedDetail += ` (${changed.join(', ')})`;
+              }
+            }
+          }
+        } catch { /* non-git or unavailable — continue without */ }
+
+        // Select existing docs: .promptforge/context/ first, then root .md files.
+        const contextDocs = scanResult.allFiles
+          .filter((f) => f.relPath.includes('.promptforge/context/') && f.preview)
+          .slice(0, 8);
+        const rootDocs = scanResult.allFiles
+          .filter((f) => !f.relPath.includes('.promptforge/') && f.relPath.endsWith('.md') && f.preview)
+          .filter((f) => !contextDocs.some((c) => c.relPath === f.relPath))
+          .slice(0, 4);
+        const existingDocs = [...contextDocs, ...rootDocs]
+          .map((f) => ({ relPath: f.relPath, preview: f.preview! }));
+
+        existingProject = {
+          existingDocs,
+          recentHistory,
+          hasUncommitted: uncommittedDetail.length > 0,
+          uncommittedDetail: uncommittedDetail || undefined,
+        };
+      }
+
       const draft = await draftProjectProfile(activeProfile, {
         projectName: scanResult.suggestedName,
         readmePreview: scanResult.readme?.preview ?? null,
         identityFiles: scanResult.identityFiles,
         techIndicators: scanResult.techIndicators,
+        existingProject,
       });
 
       // Merge draft context docs into the template skeletons.
@@ -241,28 +288,75 @@ export function OnboardingWizard({ onComplete, existingProjectId }: {
       setState((s) => ({
         ...s,
         step: 'review-scan',
-        error: `Draft failed: ${err instanceof Error ? err.message : String(err)}. You can skip drafting and use templates.`,
+        error: `Draft failed: ${err instanceof Error ? err.message : (typeof err === 'string' ? err : 'Provider request failed.')}. You can skip drafting and use templates.`,
       }));
     }
   }, [state.scanResult]);
 
-  // Skip drafting — use template skeletons directly.
+  // Skip drafting — derive project-specific templates from scan data.
   const handleSkipDraft = useCallback(() => {
-    const templates = allContextDocTemplates();
-    const docs: Record<string, string> = {};
-    for (const t of templates) {
-      docs[t.filename] = t.content;
-    }
+    const scan = state.scanResult!;
+    const projectName = scan.suggestedName;
+    const stack = scan.techIndicators.map((f) => f.relPath.replace(/^App\//, '').replace(/\.swift$|\.xcodeproj\/.*/, ''));
+    const uniqueStack = [...new Set(stack)].slice(0, 8);
+
+    // Derive docs from scan data — deterministic, no AI.
+    const docs = deriveContextDocsFromScan(scan);
+    const instructions = deriveInstructionsFromScan(projectName, uniqueStack);
 
     setState((s) => ({
       ...s,
       step: 'review-instructions',
       draftResult: null,
       editedContextDocs: docs,
-      instructionTemplates: allTemplates(s.scanResult?.suggestedName ?? 'project'),
+      instructionTemplates: instructions,
       editedInstructions: null,
     }));
-  }, []);
+
+    function deriveContextDocsFromScan(sr: typeof scan): Record<string, string> {
+      const name = sr.suggestedName;
+      const readmePreview = sr.readme?.preview ?? '';
+      const indicators = sr.techIndicators.map((f) => f.relPath);
+      const fileList = indicators.slice(0, 15).map((f) => `- ${f}`).join('\n');
+
+      return {
+        'PRODUCT.md': `# Product — ${name}\n\n${readmePreview ? `From README:\n\n${readmePreview.slice(0, 500)}\n\n` : ''}## Purpose\n\n[Derived from repository: ${sr.totalFilesSeen} files scanned, ${sr.identityFiles.length} project files, ${indicators.length} tech indicators.]\n`,
+        'ARCHITECTURE.md': `# Architecture — ${name}\n\n## Detected stack\n\n${fileList || '_(no technology indicators detected)_'}\n\n## Project structure\n\n[${sr.totalFilesSeen} non-blocked files at depth ≤ 5.]\n`,
+        'DESIGN.md': `# Design — ${name}\n\n## Visual language\n\n[Review existing UI components and design patterns in the codebase.]\n`,
+        'DATA_MODEL.md': `# Data Model — ${name}\n\n## Entities\n\n[Inspect the codebase for data models, schemas, and persistence layers.]\n`,
+        'INTEGRATIONS.md': `# Integrations — ${name}\n\n## External services\n\n[Detected from scan: ${indicators.filter((f) => f.includes('Info.plist') || f.includes('Package')).join(', ') || 'none identified'}.]\n`,
+        'SECURITY.md': `# Security — ${name}\n\n## Security rules\n\n[Review the codebase for authentication, authorization, and data protection patterns.]\n`,
+        'TESTING.md': `# Testing — ${name}\n\n## Test commands\n\n[Add your project-specific test commands here.]\n\n## Environments\n\n[Add environment-specific notes.]\n`,
+        'DECISIONS.md': `# Decisions — ${name}\n\n## Confirmed decisions\n\n[Record architectural decisions as they are made.]\n\n## Hard constraints\n\n[Document areas that must not be changed without explicit review.]\n`,
+        'CURRENT_STATE.md': `# Current State — ${name}\n\n## Scan summary\n\n- ${sr.totalFilesSeen} files scanned\n- ${sr.identityFiles.length} project identity files: ${sr.identityFiles.map((f) => f.relPath).join(', ') || 'none'}\n- ${indicators.length} technology indicators detected\n${sr.truncated ? '- Scan was truncated (file limit reached)' : ''}\n${sr.warnings.length > 0 ? `- ${sr.warnings.length} warnings during scan` : ''}\n\n## What works\n\n[To be determined — review the codebase.]\n\n## What is missing\n\n[To be determined.]\n`,
+        'BACKLOG.md': `# Backlog — ${name}\n\n## Current milestone\n\n[Define your current development milestone.]\n\n## Planned tasks\n\n- [Task 1]\n- [Task 2]\n`,
+      };
+    }
+
+    function deriveInstructionsFromScan(
+      name: string,
+      stack: string[],
+    ): Array<{ filename: string; content: string }> {
+      const stackLine = stack.length > 0
+        ? `- Stack (detected from scan): ${stack.join(', ')}`
+        : '- [Describe your tech stack and architectural constraints here.]';
+
+      return [
+        {
+          filename: 'AGENTS.md',
+          content: `# AGENTS.md — ${name}\n\nShared, provider-neutral instructions for any coding agent.\n\n## Architecture rules\n\n${stackLine}\n\n## Coding standards\n\n- Names in English; comments only where "why" is not obvious.\n\n## Hard security rules\n\n- Never commit secrets.\n\n## Test & validation commands\n\n\`\`\`bash\n# Add your project test/lint/typecheck commands here.\n\`\`\`\n\n## Working discipline\n\n- Read relevant docs and existing code before changing anything.\n- Do not modify unrelated files.\n- Destructive or irreversible operations require explicit user confirmation.\n`,
+        },
+        {
+          filename: 'QWEN.md',
+          content: `# Qwen-specific instructions\n\n- Follow AGENTS.md as the shared repository instruction source.\n- Inspect relevant existing files before making changes.\n- Do not scan the full repository unless the task requires it.\n- Prefer targeted tests over the complete suite during iteration.\n- Do not create subagents unless the task is explicitly marked Deep.\n- Stop before destructive database or deployment operations.\n- At completion, report changed files, tests, assumptions and remaining risks.\n\n# Project context\n\nRead \`.promptforge/context/\` for ${name} documentation.\n`,
+        },
+        {
+          filename: 'CLAUDE.md',
+          content: `@AGENTS.md\n\n# Claude-specific instructions\n\n- Use planning mode before high-risk architectural, billing or database work.\n- Do not over-engineer beyond the task scope.\n- Explicitly inspect edge cases and failure states.\n- Explain material architectural trade-offs before applying them.\n\n# Project context\n\nRead \`.promptforge/context/\` for ${name} documentation.\n`,
+        },
+      ];
+    }
+  }, [state.scanResult]);
 
   // Step 3 → 5: after reviewing draft, prepare instruction templates.
   const handleApproveDraft = useCallback(() => {

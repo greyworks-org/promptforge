@@ -89,6 +89,53 @@ export function requirementsBlock(reqs: TaskSpec['requirements']): string {
 }
 
 /**
+ * Determine prompt complexity tier from execution mode + risk level.
+ * Controls which sections are included in the rendered prompt.
+ *
+ * - 'minimal': simple/local tasks (quick mode, low risk)
+ * - 'normal': standard tasks
+ * - 'full': complex/high-risk tasks (deep mode, high risk)
+ */
+export function complexityTier(
+  executionMode: string,
+  riskLevel: string,
+): 'minimal' | 'normal' | 'full' {
+  if (executionMode === 'deep' || riskLevel === 'high') return 'full';
+  if (executionMode === 'quick' && riskLevel === 'low') return 'minimal';
+  return 'normal';
+}
+
+/** Whether a section should be included given the complexity tier. */
+export function includeSection(
+  tier: 'minimal' | 'normal' | 'full',
+  sectionKind: 'planning' | 'requirements' | 'edgeCases' | 'executionPlan' | 'assumptions' | 'exploration' | 'retry' | 'stopConditions' | 'testPlan' | 'executionRules',
+  hasContent: boolean,
+): boolean {
+  // Always include if there's real content.
+  if (hasContent) return true;
+
+  // Otherwise, include based on tier.
+  switch (sectionKind) {
+    case 'planning':
+      return tier === 'full';
+    case 'requirements':
+    case 'edgeCases':
+    case 'executionPlan':
+    case 'assumptions':
+    case 'stopConditions':
+      return tier === 'full';
+    case 'exploration':
+      return tier !== 'minimal';
+    case 'retry':
+      return tier !== 'minimal';
+    case 'testPlan':
+      return tier !== 'minimal';
+    case 'executionRules':
+      return tier === 'full';
+  }
+}
+
+/**
  * Derive risk-based verification guidance from task type.
  * Tells the agent what kind of verification is proportional to the task.
  * Uses only existing TaskSpec fields — no new schema required.

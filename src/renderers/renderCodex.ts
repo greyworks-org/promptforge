@@ -1,139 +1,115 @@
 import type { TaskSpec } from '../schemas/taskspec';
 import type { ExecutionProfile } from '../profiles/registry';
 import {
-  scopeBlock,
-  outOfScopeBlock,
-  acceptanceBlock,
-  assumptionsBlock,
-  currentStateBlock,
-  requirementsBlock,
-  edgeCasesBlock,
-  executionPlanBlock,
-  testInstructionsBlock,
-  testPlanBlock,
-  finalReportBlock,
-  verificationGuidanceBlock,
-  guardrailBlock,
-  retryBlock,
-  explorationBlock,
-  sanitizeHeading,
+  scopeBlock, outOfScopeBlock, acceptanceBlock, assumptionsBlock,
+  currentStateBlock, requirementsBlock, edgeCasesBlock,
+  executionPlanBlock, testInstructionsBlock, testPlanBlock,
+  finalReportBlock, verificationGuidanceBlock,
+  guardrailBlock, retryBlock, explorationBlock,
+  sanitizeHeading, complexityTier, includeSection,
 } from './shared';
 
-/**
- * Codex renderer (Phase 7).
- *
- * Outcome-first, constraints, report list. Reads AGENTS.md.
- * Profile-aware.
- */
-
-export function renderCodex(
-  task: TaskSpec,
-  profile: ExecutionProfile,
-): string {
+export function renderCodex(task: TaskSpec, profile: ExecutionProfile): string {
+  const tier = complexityTier(task.execution_mode, task.risk_level);
   const sections: string[] = [];
 
-  // Header
   sections.push(`Use AGENTS.md as the repository instruction source. Inspect the existing implementation before making changes.`);
   sections.push('');
 
-  // Objective — outcome-first framing
   sections.push(`Implement: ${sanitizeHeading(task.objective)}`);
   sections.push('');
 
-  // Required outcome (scope as outcome)
   sections.push(`## Required outcome`);
   sections.push('');
   sections.push(scopeBlock(task.scope).replace('## Scope', ''));
   sections.push('');
 
-  // Out of scope
-  if (task.out_of_scope && task.out_of_scope.length > 0) {
-    sections.push(outOfScopeBlock(task.out_of_scope));
+  if ((task.out_of_scope?.length ?? 0) > 0) {
+    sections.push(outOfScopeBlock(task.out_of_scope!));
     sections.push('');
   }
 
-  // Constraints (profile-driven + stop conditions)
+  // Constraints — always shown but simplified for minimal tier.
   sections.push(`## Constraints`);
   sections.push('');
   const constraints: string[] = [];
-  constraints.push(explorationBlock(profile));
-  if (profile.autonomy === 'low') {
-    constraints.push('Ask before making design decisions.');
+  if (includeSection(tier, 'exploration', false)) {
+    constraints.push(explorationBlock(profile));
   }
-  const guardrail = guardrailBlock(profile, task.stop_conditions ?? []);
-  if (guardrail) {
-    constraints.push(guardrail);
+  if (includeSection(tier, 'executionRules', profile.autonomy === 'low')) {
+    if (profile.autonomy === 'low') constraints.push('Ask before making design decisions.');
   }
-  sections.push(constraints.join('\n'));
+  const hasStop = (task.stop_conditions?.length ?? 0) > 0;
+  if (includeSection(tier, 'stopConditions', hasStop)) {
+    const guardrail = guardrailBlock(profile, task.stop_conditions ?? []);
+    if (guardrail) constraints.push(guardrail);
+  }
+  if (constraints.length > 0) {
+    sections.push(constraints.join('\n'));
+  } else {
+    sections.push('Complete the implementation within the defined scope.');
+  }
   sections.push('');
 
-  // Current state
-  if (task.current_state && task.current_state.length > 0) {
-    sections.push(currentStateBlock(task.current_state));
+  if ((task.current_state?.length ?? 0) > 0) {
+    sections.push(currentStateBlock(task.current_state!));
     sections.push('');
   }
 
-  // Requirements
   const reqBlock = requirementsBlock(task.requirements);
-  if (reqBlock) {
+  if (includeSection(tier, 'requirements', reqBlock.length > 0) && reqBlock) {
     sections.push(reqBlock);
     sections.push('');
   }
 
-  // Edge cases
-  if (task.edge_cases && task.edge_cases.length > 0) {
-    sections.push(edgeCasesBlock(task.edge_cases));
+  if (includeSection(tier, 'edgeCases', (task.edge_cases?.length ?? 0) > 0)) {
+    sections.push(edgeCasesBlock(task.edge_cases ?? []));
     sections.push('');
   }
 
-  // Acceptance criteria
   sections.push(acceptanceBlock(task.acceptance_criteria));
   sections.push('');
 
-  // Execution plan
-  if (task.execution_plan && task.execution_plan.length > 0) {
-    sections.push(executionPlanBlock(task.execution_plan));
+  if (includeSection(tier, 'executionPlan', (task.execution_plan?.length ?? 0) > 0)) {
+    sections.push(executionPlanBlock(task.execution_plan ?? []));
     sections.push('');
   }
 
-  // Assumptions
-  if (task.assumptions && task.assumptions.length > 0) {
-    sections.push(assumptionsBlock(task.assumptions));
+  if (includeSection(tier, 'assumptions', (task.assumptions?.length ?? 0) > 0)) {
+    sections.push(assumptionsBlock(task.assumptions ?? []));
     sections.push('');
   }
 
-  // Test instructions
   const testInstr = testInstructionsBlock(profile);
-  if (testInstr) {
-    sections.push(testInstr);
-    sections.push('');
-  }
-  if (task.test_plan && task.test_plan.length > 0) {
-    sections.push(testPlanBlock(task.test_plan));
-    sections.push('');
+  const hasTestPlan = (task.test_plan?.length ?? 0) > 0;
+  if (includeSection(tier, 'testPlan', testInstr.length > 0 || hasTestPlan)) {
+    if (testInstr) { sections.push(testInstr); sections.push(''); }
+    if (hasTestPlan) { sections.push(testPlanBlock(task.test_plan!)); sections.push(''); }
   }
 
-  // Retry
-  const retry = retryBlock(profile);
-  if (retry) {
-    sections.push(retry);
-    sections.push('');
+  if (includeSection(tier, 'retry', false)) {
+    const retry = retryBlock(profile);
+    if (retry) { sections.push(retry); sections.push(''); }
   }
 
-      sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
-      sections.push("");
-  // Final report
-  sections.push(`Complete the implementation, run the relevant validations, and report:`);
-  sections.push(`- files changed`);
-  sections.push(`- commands executed`);
-  sections.push(`- test results`);
-  sections.push(`- assumptions`);
-  sections.push(`- remaining risks`);
+  sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
   sections.push('');
 
-  if (task.final_report && task.final_report.length > 0) {
+  // Completion report — minimal tier gets a shorter version.
+  if (tier === 'minimal') {
+    sections.push(`Report changed files, test results, and remaining risks.`);
+  } else {
+    sections.push(`Complete the implementation, run the relevant validations, and report:`);
+    sections.push(`- files changed`);
+    sections.push(`- commands executed`);
+    sections.push(`- test results`);
+    sections.push(`- assumptions`);
+    sections.push(`- remaining risks`);
+  }
+  sections.push('');
 
-      sections.push(finalReportBlock(task.final_report));
+  if ((task.final_report?.length ?? 0) > 0) {
+    sections.push(finalReportBlock(task.final_report!));
     sections.push('');
   }
 

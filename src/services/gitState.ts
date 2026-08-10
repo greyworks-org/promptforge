@@ -1,11 +1,12 @@
 import { invokeIpc } from '../ipc';
+import { resolveProjectRoot } from './projectFs';
 
 /**
- * Git state inspection (Phase 9).
+ * Git state inspection (Phase 9, trust-boundary hardened).
  *
- * Reads live git metadata through the allowlisted `git_inspect` Rust
- * command. Results are derived live on every call — never cached as
- * truth. Non-git folders degrade gracefully to `isRepo: false`.
+ * Accepts `projectId` and resolves the canonical root from the Rust
+ * project registry — the frontend cannot supply an arbitrary path.
+ * Results are derived live on every call, never cached as truth.
  */
 
 export interface GitSnapshot {
@@ -30,13 +31,10 @@ interface GitInspectResult {
   branch: string | null;
 }
 
-/**
- * Get the live git snapshot for a project root. Computed on every
- * call — never served from cache. Non-git folders return `isRepo: false`.
- */
-export async function getGitSnapshot(repoPath: string): Promise<GitSnapshot> {
+export async function getGitSnapshot(projectId: string): Promise<GitSnapshot> {
   try {
-    const raw = await invokeIpc<GitInspectResult>('git_inspect', { repoPath });
+    const root = await resolveProjectRoot(projectId);
+    const raw = await invokeIpc<GitInspectResult>('git_inspect', { repoPath: root });
     return {
       isRepo: raw.isRepo,
       head: raw.head,

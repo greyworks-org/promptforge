@@ -1,18 +1,8 @@
 import type { HandoffSnapshot } from './snapshot';
 
-/**
- * Progress classification (Phase 10).
- *
- * Deterministic classification of task progress using live git evidence.
- * Every claim is labeled as evidence — never presented as fact.
- */
-
 export interface ProgressItem {
-  /** The scope item text. */
   item: string;
-  /** Classification status. */
   status: 'completed' | 'partial' | 'remaining';
-  /** Human-readable evidence supporting the classification. */
   evidence: string;
 }
 
@@ -20,24 +10,24 @@ export interface ProgressReport {
   completed: ProgressItem[];
   partial: ProgressItem[];
   remaining: ProgressItem[];
-  /** Whether the task appears interrupted (uncommitted changes exist). */
   isInterrupted: boolean;
+  /** True when memory's base_commit differs from current git HEAD —
+   *  memory may be stale relative to the repository. */
+  memoryMayBeStale: boolean;
 }
 
-/**
- * Classify task progress by comparing scope items against git evidence.
- *
- * - committed since base_commit → completed
- * - uncommitted changes touching related files → partial (interrupted)
- * - no evidence → remaining
- *
- * Every classification includes the evidence label.
- */
 export function classifyProgress(snapshot: HandoffSnapshot): ProgressReport {
   const task = snapshot.currentTask;
   if (!task || task.scope.length === 0) {
-    return { completed: [], partial: [], remaining: [], isInterrupted: false };
+    return { completed: [], partial: [], remaining: [], isInterrupted: false, memoryMayBeStale: false };
   }
+
+  // Staleness check: if memory.base_commit differs from git HEAD,
+  // the persisted memory may not reflect the current repository state.
+  const memoryMayBeStale =
+    snapshot.memory.baseCommit !== null &&
+    snapshot.git.head !== null &&
+    snapshot.memory.baseCommit !== snapshot.git.head.hash;
 
   const hasUncommitted =
     snapshot.git.uncommitted.staged.length > 0 ||
@@ -82,5 +72,6 @@ export function classifyProgress(snapshot: HandoffSnapshot): ProgressReport {
     partial,
     remaining,
     isInterrupted: hasUncommitted && partial.length > 0,
+    memoryMayBeStale,
   };
 }

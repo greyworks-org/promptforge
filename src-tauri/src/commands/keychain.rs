@@ -17,26 +17,53 @@ pub fn delete_secret(secrets: &dyn SecretStore, account: &str) -> Result<bool, S
     secrets.delete(account).map_err(|e| format!("Keychain error: {e}"))
 }
 
-/// Presence check only — the webview never receives the secret itself.
-/// (A `keychain_get` command is deliberately NOT registered: reading keys is
-/// reserved for the Rust transport, see commands/provider.rs.)
-pub fn has_secret(secrets: &dyn SecretStore, account: &str) -> Result<bool, String> {
-    Ok(secrets.get(account).map_err(|e| format!("Keychain error: {e}"))?.is_some())
+/// Presence check — checks the in-memory cache first, falls back to
+/// Keychain. The webview never receives the secret itself.
+pub fn has_secret(
+    secrets: &dyn SecretStore,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, String>>,
+    account: &str,
+) -> Result<bool, String> {
+    // Check cache first — avoids repeated Keychain authorization prompts.
+    if let Ok(cache) = cache.lock() {
+        if cache.contains_key(account) {
+            return Ok(true);
+        }
+    }
+    // Read from Keychain and cache the result for the session.
+    match secrets.get(account) {
+        Ok(Some(key)) => {
+            if let Ok(mut cache) = cache.lock() {
+                cache.insert(account.to_string(), key);
+            }
+            Ok(true)
+        }
+        Ok(None) => Ok(false),
+        Err(e) => Err(format!("Keychain error: {e}")),
+    }
 }
 
 #[tauri::command]
 pub fn keychain_set(state: State<'_, AppState>, account: String, secret: String) -> Result<(), String> {
+    // Update the in-memory cache.
+    if let Ok(mut cache) = state.key_cache.lock() {
+        cache.insert(account.clone(), secret.clone());
+    }
     set_secret(state.secrets.as_ref(), &account, &secret)
 }
 
 #[tauri::command]
 pub fn keychain_delete(state: State<'_, AppState>, account: String) -> Result<bool, String> {
+    // Clear the cache entry.
+    if let Ok(mut cache) = state.key_cache.lock() {
+        cache.remove(&account);
+    }
     delete_secret(state.secrets.as_ref(), &account)
 }
 
 #[tauri::command]
 pub fn keychain_has(state: State<'_, AppState>, account: String) -> Result<bool, String> {
-    has_secret(state.secrets.as_ref(), &account)
+    has_secret(state.secrets.as_ref(), &state.key_cache, &account)
 }
 
 #[cfg(test)]
@@ -61,11 +88,17 @@ mod tests {
 
     #[test]
     fn has_reflects_presence_without_returning_the_secret() {
+        use std::collections::HashMap;
         let store = InMemoryStore::default();
-        assert!(!has_secret(&store, "provider/default").unwrap());
+        let cache = std::sync::Mutex::new(HashMap::new());
+        assert!(!has_secret(&store, &cache, "provider/default").unwrap());
         set_secret(&store, "provider/default", "secret").unwrap();
-        assert!(has_secret(&store, "provider/default").unwrap());
-        assert!(delete_secret(&store, "provider/default").unwrap());
-        assert!(!has_secret(&store, "provider/default").unwrap());
+        // After set via standalone function, cache doesn't have it yet,
+        // but the store does — has_secret falls back to Keychain and caches.
+        assert!(has_secret(&store, &cache, "provider/default").unwrap());
+        // Delete from store AND clear cache.
+        delete_secret(&store, "provider/default").unwrap();
+        cache.lock().unwrap().remove("provider/default");
+        assert!(!has_secret(&store, &cache, "provider/default").unwrap());
     }
 }

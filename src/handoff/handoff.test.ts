@@ -293,6 +293,70 @@ describe('handoff renderers — anti-repetition', () => {
   });
 });
 
+describe('staleness reconciliation', () => {
+  it('detects when memory baseCommit differs from git HEAD', () => {
+    const snap = assembleSnapshot({
+      projectId: 'project-test',
+      projectName: 'Test',
+      memory: makeMemory({ baseCommit: 'aaa111' }),
+      git: makeGit({ head: { hash: 'bbb222', subject: 'newer', committedAt: '2026-08-10T00:00:00Z' } }),
+      currentTask: makeTask(),
+    });
+    const report = classifyProgress(snap);
+    expect(report.memoryMayBeStale).toBe(true);
+  });
+
+  it('no staleness when baseCommit matches HEAD', () => {
+    const snap = assembleSnapshot({
+      projectId: 'project-test',
+      projectName: 'Test',
+      memory: makeMemory({ baseCommit: 'abc123' }),
+      git: makeGit({ head: { hash: 'abc123', subject: 'same', committedAt: '2026-08-07T00:00:00Z' } }),
+      currentTask: makeTask(),
+    });
+    const report = classifyProgress(snap);
+    expect(report.memoryMayBeStale).toBe(false);
+  });
+
+  it('no staleness flag when no baseCommit recorded', () => {
+    const snap = assembleSnapshot({
+      projectId: 'project-test',
+      projectName: 'Test',
+      memory: makeMemory({ baseCommit: null }),
+      git: makeGit(),
+      currentTask: makeTask(),
+    });
+    const report = classifyProgress(snap);
+    expect(report.memoryMayBeStale).toBe(false);
+  });
+});
+
+describe('WHY gap — missing rationale', () => {
+  it('Claude renderer flags when no decisions are recorded', () => {
+    const snap = assembleSnapshot({
+      projectId: 'project-test',
+      projectName: 'Test',
+      memory: makeMemory({ decisions: [] }),
+      git: makeGit(),
+      currentTask: null,
+    });
+    const out = renderHandoffClaudeCode(snap);
+    expect(out).toContain('No decisions recorded');
+  });
+
+  it('Claude renderer DOES include decisions when present', () => {
+    const snap = assembleSnapshot({
+      projectId: 'project-test',
+      projectName: 'Test',
+      memory: makeMemory({ decisions: [{ text: 'Use SQLite', at: '2026-08-07T00:00:00Z' }] }),
+      git: makeGit(),
+      currentTask: null,
+    });
+    const out = renderHandoffClaudeCode(snap);
+    expect(out).toContain('Use SQLite');
+  });
+});
+
 describe('handoff renderers — arbitrary-project generality', () => {
   const projects = [
     { name: 'AI Feedback SaaS', phase: 'MVP', stack: ['Next.js', 'Supabase'] },

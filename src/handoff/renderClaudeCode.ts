@@ -53,6 +53,19 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
       sections.push(`- ${d.text}`);
     }
     sections.push('');
+  } else {
+    sections.push('## Decisions');
+    sections.push('');
+    sections.push('(No decisions recorded in project memory. Review git history and current code to understand the rationale behind existing implementation choices.)');
+    sections.push('');
+  }
+
+  // Staleness reconciliation: memory may be behind current git state.
+  if (progress.memoryMayBeStale) {
+    sections.push('## ⚠ Memory may be stale');
+    sections.push('');
+    sections.push(`The project memory was last updated at commit \`${snapshot.memory.baseCommit?.slice(0, 8) ?? 'unknown'}\` but the current HEAD is \`${snapshot.git.head?.hash.slice(0, 8) ?? 'unknown'}\`. Newer commits exist — review them before relying on the recorded memory.`);
+    sections.push('');
   }
 
   // Progress evidence.

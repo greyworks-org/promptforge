@@ -66,7 +66,7 @@ export async function summarizeDocument(
     temperature: 0.2,
     maxTokens: SUMMARIZE_MAX_TOKENS,
     timeoutMs: profile.params.timeoutMs,
-    jsonMode: profile.capabilities.jsonMode === 'on' ? 'on' : 'off',
+    jsonMode: 'on',
   });
 
   const body = JSON.parse(outcome.body) as {

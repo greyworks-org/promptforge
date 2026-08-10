@@ -71,12 +71,25 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
 
 /// Read-only git inspection.  Returns structured metadata only — never
 /// file contents.  Non-git folders return `isRepo: false`.
+///
+/// Explicit trust rule (no implicit monorepo inheritance):
+/// - `.git` directory inside project root → allow (own repo)
+/// - `.git` file inside project root → allow (worktree / submodule)
+/// - `.git` found in a parent directory → reject (no implicit trust)
+/// - no `.git` → graceful fallback
 #[tauri::command]
 pub fn git_inspect(repo_path: String) -> Result<GitInspectResult, String> {
-    // Check whether the directory is a git repo.
-    let is_repo = match run_git(&repo_path, &["rev-parse", "--is-inside-work-tree"]) {
-        Ok(o) => o.trim() == "true",
-        Err(_) => false,
+    let project_root = PathBuf::from(&repo_path);
+
+    // Only trust .git that lives INSIDE the project root.
+    let dot_git = project_root.join(".git");
+    let is_repo = if dot_git.exists() {
+        match run_git(&repo_path, &["rev-parse", "--is-inside-work-tree"]) {
+            Ok(o) => o.trim() == "true",
+            Err(_) => false,
+        }
+    } else {
+        false
     };
 
     if !is_repo {
@@ -196,6 +209,79 @@ mod tests {
     fn non_repo_returns_is_repo_false() {
         let result = git_inspect("/tmp".into()).unwrap();
         assert!(!result.is_repo);
+    }
+
+    fn tmp_git_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pf-git-{}-{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn own_git_repo_detected() {
+        let dir = tmp_git_dir("own-repo");
+        Command::new("git").args(["init"]).current_dir(&dir).status().unwrap();
+        let result = git_inspect(dir.to_string_lossy().into_owned()).unwrap();
+        assert!(result.is_repo);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn no_dot_git_returns_false() {
+        let dir = tmp_git_dir("no-repo");
+        let result = git_inspect(dir.to_string_lossy().into_owned()).unwrap();
+        assert!(!result.is_repo);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn monorepo_child_without_own_dot_git_rejected() {
+        // /repo/.git, /repo/apps/mobile → NO .git inside mobile.
+        // Without explicit trust, this is rejected. Monorepo trust requires
+        // explicit workspace binding, not directory ancestry.
+        let repo = tmp_git_dir("mono-reject");
+        Command::new("git").args(["init"]).current_dir(&repo).status().unwrap();
+        let child = repo.join("apps").join("mobile");
+        std::fs::create_dir_all(&child).unwrap();
+        let result = git_inspect(child.to_string_lossy().into_owned()).unwrap();
+        assert!(!result.is_repo, "monorepo child without own .git must be rejected");
+        std::fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn arbitrary_parent_repo_rejected() {
+        // Simulate any non-home parent: /tmp/repo/.git, /tmp/repo/child.
+        // Child has no .git → must be rejected regardless of parent identity.
+        let parent = tmp_git_dir("arb-parent");
+        Command::new("git").args(["init"]).current_dir(&parent).status().unwrap();
+        let child = parent.join("child-project");
+        std::fs::create_dir_all(&child).unwrap();
+        let result = git_inspect(child.to_string_lossy().into_owned()).unwrap();
+        assert!(!result.is_repo, "arbitrary parent repo must be rejected");
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn submodule_with_gitfile_allowed() {
+        // Simulate a git worktree: child has .git file, parent is a real repo.
+        let repo = tmp_git_dir("worktree-main");
+        Command::new("git").args(["init"]).current_dir(&repo).status().unwrap();
+        // Create a linked worktree directory with a .git file.
+        let wt = repo.join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let gitdir_path = repo.join(".git").join("worktrees").join("wt");
+        std::fs::create_dir_all(&gitdir_path).unwrap();
+        // Minimal valid gitdir: needs HEAD + commondir.
+        std::fs::write(gitdir_path.join("HEAD"), "ref: refs/heads/main").unwrap();
+        std::fs::write(gitdir_path.join("commondir"), format!("{}/.git\n", repo.to_string_lossy())).unwrap();
+        std::fs::write(
+            wt.join(".git"),
+            format!("gitdir: {}\n", gitdir_path.to_string_lossy()),
+        ).unwrap();
+        let result = git_inspect(wt.to_string_lossy().into_owned()).unwrap();
+        assert!(result.is_repo, "worktree with .git file should be a repo");
+        std::fs::remove_dir_all(&repo).ok();
     }
 
     #[test]

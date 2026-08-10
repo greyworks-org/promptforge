@@ -155,8 +155,9 @@ describe('renderQwenCode', () => {
     expect(output).toContain('DESIGN.md');
   });
 
-  it('includes execution rules with numbered steps', () => {
-    const output = renderQwenCode(FEATURE_TASK, qwenProfile);
+  it('includes execution rules with numbered steps for deep/high-risk', () => {
+    const deepTask = { ...FEATURE_TASK, execution_mode: 'deep' as const, risk_level: 'high' as const };
+    const output = renderQwenCode(deepTask, qwenProfile);
     expect(output).toContain('Execution rules');
     expect(output).toContain('1.');
     expect(output).toContain('Inspect');

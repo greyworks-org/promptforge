@@ -3,54 +3,69 @@ import {
   keychainAccountFor,
   type ProviderProfile,
 } from '../schemas/providerProfile';
+import { getAppDb } from '../db/appDb';
+import { createSettingsRepository } from '../db/repos/settingsRepo';
+import type { QueryRunner } from '../db/runner';
 
-/** Raw transport outcome returned by the Rust `provider_chat` command. */
-export interface ChatOutcome {
-  status: number;
-  body: string;
-  latencyMs: number;
-}
-
-/** Error classes mirror docs/DEEPSEEK_INTEGRATION.md §6. */
+export interface ChatOutcome { status: number; body: string; latencyMs: number; }
 export type ProviderErrorClass = 'config' | 'auth' | 'network' | 'http_api';
-
-export interface ProviderFailure {
-  class: ProviderErrorClass;
-  message: string;
-}
-
-/** Failure normalized from an IPC rejection; unknown shapes are never echoed. */
-interface NormalizedFailure {
-  class: ProviderErrorClass | 'unknown';
-  message: string;
-}
-
+export interface ProviderFailure { class: ProviderErrorClass; message: string; }
+interface NormalizedFailure { class: ProviderErrorClass | 'unknown'; message: string; }
 export interface ConnectionTestResult {
-  ok: boolean;
-  reachable: boolean;
-  authAccepted: boolean | null;
-  modelAnswered: boolean;
-  contentIsJson: boolean;
-  jsonModeRequested: boolean;
-  usagePresent: boolean | null;
-  latencyMs: number | null;
-  errorClass: ProviderErrorClass | 'unknown' | null;
-  message: string;
+  ok: boolean; reachable: boolean; authAccepted: boolean | null;
+  modelAnswered: boolean; contentIsJson: boolean; jsonModeRequested: boolean;
+  usagePresent: boolean | null; latencyMs: number | null;
+  errorClass: ProviderErrorClass | 'unknown' | null; message: string;
 }
 
 const CONNECTION_TEST_PROMPT = 'Respond with JSON: {"ok": true}';
 const CONNECTION_TEST_MAX_TOKENS = 50;
 
+let testRunner: QueryRunner | null = null;
+export function setDbForTests(runner: QueryRunner | null): void { testRunner = runner; }
+
+function hasKeyMetaKey(profileId: string): string { return `provider.has_key.${profileId}`; }
+
+/**
+ * Save API key to Keychain AND record presence metadata locally.
+ * Settings/UI checks the metadata, not Keychain.
+ */
 export async function saveApiKey(profileId: string, secret: string): Promise<void> {
   await invokeIpc('keychain_set', { account: keychainAccountFor(profileId), secret });
+  const runner = testRunner ?? (await getAppDb());
+  const store = createSettingsRepository(runner);
+  await store.set(hasKeyMetaKey(profileId), '1');
 }
 
+/**
+ * Delete API key from Keychain AND clear presence metadata.
+ */
 export async function deleteApiKey(profileId: string): Promise<boolean> {
-  return invokeIpc<boolean>('keychain_delete', { account: keychainAccountFor(profileId) });
+  const result = await invokeIpc<boolean>('keychain_delete', { account: keychainAccountFor(profileId) });
+  const runner = testRunner ?? (await getAppDb());
+  const store = createSettingsRepository(runner);
+  await store.remove(hasKeyMetaKey(profileId));
+  return result;
 }
 
+/**
+ * Check whether an API key exists. Checks local metadata first (no
+ * Keychain access). Falls back to Keychain only when migrating
+ * existing keys that were saved before metadata existed.
+ */
 export async function hasApiKey(profileId: string): Promise<boolean> {
-  return invokeIpc<boolean>('keychain_has', { account: keychainAccountFor(profileId) });
+  // Check local metadata first — no Keychain access.
+  const runner = testRunner ?? (await getAppDb());
+  const store = createSettingsRepository(runner);
+  const meta = await store.get(hasKeyMetaKey(profileId));
+  if (meta === '1') return true;
+  if (meta === '0') return false;
+
+  // Migration: key was saved before metadata. Check Keychain once,
+  // then record the result so subsequent checks use metadata only.
+  const exists = await invokeIpc<boolean>('keychain_has', { account: keychainAccountFor(profileId) });
+  await store.set(hasKeyMetaKey(profileId), exists ? '1' : '0');
+  return exists;
 }
 
 function asProviderFailure(err: unknown): NormalizedFailure {

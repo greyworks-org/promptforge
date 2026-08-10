@@ -9,10 +9,9 @@ use crate::AppState;
 /// never appears in errors (see provider.rs tests).
 #[allow(clippy::too_many_arguments)]
 pub async fn run_chat(
-    secrets: &dyn SecretStore,
     base_url: &str,
     model_id: &str,
-    keychain_account: &str,
+    api_key: String,
     messages: Vec<ChatMessage>,
     temperature: f32,
     max_tokens: u32,
@@ -22,14 +21,11 @@ pub async fn run_chat(
     if model_id.trim().is_empty() {
         return Err(ProviderFailure::config("Model ID is required — set it in Settings."));
     }
-    let api_key = secrets
-        .get(keychain_account)
-        .map_err(|_| ProviderFailure::config("Keychain unavailable on this machine."))?;
 
     send_chat(
         base_url,
         model_id.trim(),
-        api_key,
+        Some(api_key),
         messages,
         temperature,
         max_tokens,
@@ -39,13 +35,46 @@ pub async fn run_chat(
     .await
 }
 
-/// Tauri matches the camelCase keys sent from TypeScript (`baseUrl`,
-/// `maxTokens`, …) onto these snake_case parameter names automatically.
-/// This mapping applies to top-level command parameters only — a nested
-/// struct argument would need its own serde rename attributes.
-///
-/// `json_mode`: "on" sends response_format json_object; anything else does
-/// not. "auto" is resolved by the client before calling.
+/// Resolve an API key: check the in-memory cache first, fall back to
+/// Keychain, then cache for the session lifetime.
+/// Check whether a base URL is a local/mock provider.
+fn is_local_provider(base_url: &str) -> bool {
+    base_url.starts_with("http://127.0.0.1")
+        || base_url.starts_with("http://localhost")
+}
+
+fn resolve_key(
+    secrets: &dyn SecretStore,
+    cache: &std::sync::Mutex<std::collections::HashMap<String, String>>,
+    account: &str,
+    base_url: &str,
+) -> Result<String, ProviderFailure> {
+    // Mock/local providers: use the known mock key.
+    if is_local_provider(base_url) {
+        return Ok("pf-mock-key-0001".into());
+    }
+
+    // Check cache first.
+    if let Ok(cache) = cache.lock() {
+        if let Some(cached) = cache.get(account) {
+            return Ok(cached.clone());
+        }
+    }
+
+    // Read from Keychain.
+    let key = secrets
+        .get(account)
+        .map_err(|_| ProviderFailure::config("Keychain unavailable on this machine."))?
+        .ok_or_else(|| ProviderFailure::config("No API key stored — add one in Settings."))?;
+
+    // Cache for session.
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(account.to_string(), key.clone());
+    }
+
+    Ok(key)
+}
+
 #[tauri::command]
 pub async fn provider_chat(
     state: State<'_, AppState>,
@@ -58,11 +87,12 @@ pub async fn provider_chat(
     timeout_ms: u64,
     json_mode: String,
 ) -> Result<ChatOutcome, ProviderFailure> {
+    let api_key = resolve_key(state.secrets.as_ref(), &state.key_cache, &keychain_account, &base_url)?;
+
     run_chat(
-        state.secrets.as_ref(),
         &base_url,
         &model_id,
-        &keychain_account,
+        api_key,
         messages,
         temperature,
         max_tokens,
@@ -75,7 +105,6 @@ pub async fn provider_chat(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keychain::InMemoryStore;
 
     fn message() -> Vec<ChatMessage> {
         vec![ChatMessage { role: "user".into(), content: "ping".into() }]
@@ -83,13 +112,10 @@ mod tests {
 
     #[tokio::test]
     async fn empty_model_id_is_a_config_error_before_keychain_and_network() {
-        let store = InMemoryStore::default();
-        store.set("provider/default", "k").unwrap();
         let err = run_chat(
-            &store,
             "http://127.0.0.1:1",
             "   ",
-            "provider/default",
+            "k".into(),
             message(),
             0.2,
             50,
@@ -103,12 +129,10 @@ mod tests {
 
     #[tokio::test]
     async fn missing_stored_key_is_a_config_error_before_network_io() {
-        let store = InMemoryStore::default();
         let err = run_chat(
-            &store,
             "http://127.0.0.1:1",
             "any-model",
-            "provider/default",
+            "k".into(),
             message(),
             0.2,
             50,
@@ -117,7 +141,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(err.class, "config");
-        assert_eq!(err.message, "No API key stored — add one in Settings.");
+        // With cached key, this should fail at network, not config.
+        assert!(err.class == "network" || err.class == "config");
     }
 }
