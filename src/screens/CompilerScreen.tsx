@@ -5,6 +5,8 @@ import { BlockingQuestionsDialog } from '../components/BlockingQuestionsDialog';
 import { listContextDocs, readContextContent } from '../services/contextService';
 import { recordCompilation } from '../services/historyService';
 import { recordCompileSuccess } from '../services/memoryService';
+import { listProfiles } from '../services/settingsService';
+import { resolveExecutionProfile } from '../services/providerRegistry';
 
 /**
  * Compiler screen (Phase 6).
@@ -26,11 +28,25 @@ export function CompilerScreen({
   const [rawRequest, setRawRequest] = useState('');
   const [taskType, setTaskType] = useState('auto');
   const [depth, setDepth] = useState('auto');
-  const [targetRuntime, setTargetRuntime] = useState('qwen-code');
+  const [targetRuntime, setTargetRuntime] = useState('claude-code');
+  const [selectedProviderId, setSelectedProviderId] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [availableProfiles, setAvailableProfiles] = useState<ProviderProfile[]>([]);
 
   const [state, setState] = useState<PipelineState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load available provider profiles.
+  useEffect(() => {
+    listProfiles().then((profiles) => {
+      setAvailableProfiles(profiles);
+      if (profiles.length > 0 && !selectedProviderId) {
+        setSelectedProviderId(profiles[0].id);
+        setModelId(profiles[0].modelId);
+      }
+    });
+  }, []);
 
   // Auto-load context docs from the active project.
   const [contextDocs, setContextDocs] = useState<Array<{ relPath: string; content: string }>>([]);
@@ -66,6 +82,15 @@ export function CompilerScreen({
       return;
     }
 
+    // Validate runtime + provider + model combination.
+    const selectedProfile = availableProfiles.find((p) => p.id === selectedProviderId);
+    const providerLabel = selectedProfile?.label ?? '';
+    const resolved = resolveExecutionProfile(targetRuntime, providerLabel, modelId);
+    if (!resolved.ok) { setError(resolved.error); return; }
+
+    // Use the selected provider profile for the actual API call.
+    const compileProfile: ProviderProfile = selectedProfile ?? activeProfile;
+
     setError(null);
     setBusy(true);
     setState(null);
@@ -81,7 +106,7 @@ export function CompilerScreen({
           : (depth as CompileRequest['executionMode']);
 
       const request: CompileRequest = {
-        profile: activeProfile,
+        profile: compileProfile,
         projectId: activeProjectId,
         rawRequest: rawRequest.trim(),
         executionMode: resolvedMode,
@@ -123,7 +148,7 @@ export function CompilerScreen({
     } finally {
       setBusy(false);
     }
-  }, [activeProfile, activeProjectId, rawRequest, taskType, depth, targetRuntime, contextDocs, state, answers]);
+  }, [activeProfile, activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, state, answers]);
 
   const handleAnswersSubmit = useCallback(
     (newAnswers: string[]) => {
@@ -175,12 +200,7 @@ export function CompilerScreen({
       <div className="grid grid-cols-3 gap-4">
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Task type</span>
-          <select
-            className={selectClass}
-            value={taskType}
-            onChange={(e) => setTaskType(e.target.value)}
-            disabled={busy}
-          >
+          <select className={selectClass} value={taskType} onChange={(e) => setTaskType(e.target.value)} disabled={busy}>
             <option value="auto">Auto</option>
             <option value="feature">Feature</option>
             <option value="bugfix">Bugfix</option>
@@ -199,12 +219,7 @@ export function CompilerScreen({
 
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Depth</span>
-          <select
-            className={selectClass}
-            value={depth}
-            onChange={(e) => setDepth(e.target.value)}
-            disabled={busy}
-          >
+          <select className={selectClass} value={depth} onChange={(e) => setDepth(e.target.value)} disabled={busy}>
             <option value="auto">Auto</option>
             <option value="quick">Quick</option>
             <option value="standard">Standard</option>
@@ -214,16 +229,26 @@ export function CompilerScreen({
 
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Target runtime</span>
-          <select
-            className={selectClass}
-            value={targetRuntime}
-            onChange={(e) => setTargetRuntime(e.target.value)}
-            disabled={busy}
-          >
-            <option value="qwen-code">Qwen Code</option>
+          <select className={selectClass} value={targetRuntime} onChange={(e) => setTargetRuntime(e.target.value)} disabled={busy}>
             <option value="claude-code">Claude Code</option>
-            <option value="codex">Codex</option>
+            <option value="qwen-code">Qwen Code</option>
+            <option value="codex">Codex CLI</option>
           </select>
+        </label>
+
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Provider</span>
+          <select className={selectClass} value={selectedProviderId} onChange={(e) => { setSelectedProviderId(e.target.value); const p = availableProfiles.find((x) => x.id === e.target.value); if (p) setModelId(p.modelId); }} disabled={busy}>
+            {availableProfiles.length === 0 && <option value="">No providers configured</option>}
+            {availableProfiles.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Model</span>
+          <input className={inputClass} value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="auto (from provider)" disabled={busy} />
         </label>
       </div>
 

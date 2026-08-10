@@ -96,6 +96,13 @@ export async function loadProfile(): Promise<ProviderProfile | null> {
   return store.profiles[store.active] ?? null;
 }
 
+/** List all configured provider profiles. */
+export async function listProfiles(): Promise<ProviderProfile[]> {
+  const store = await loadStore();
+  if (store === null) return [];
+  return Object.values(store.profiles);
+}
+
 export async function saveProfile(profile: ProviderProfile): Promise<ProviderProfile> {
   const parsed = providerProfileSchema.parse(profile);
   const store = await settings();
