@@ -26,8 +26,8 @@ function tableExists(name: string): boolean {
 describe('runMigrations', () => {
   it('applies all migrations on a clean database', async () => {
     const report = await runMigrations(runner);
-    expect(report.applied).toEqual([1, 3, 4]);
-    expect(report.currentVersion).toBe(4);
+    expect(report.applied).toEqual([1, 3, 4, 5]);
+    expect(report.currentVersion).toBe(5);
     for (const table of ['projects', 'context_docs', 'compilations', 'task_outcomes', 'settings']) {
       expect(tableExists(table), `table ${table} should exist`).toBe(true);
     }
@@ -39,6 +39,7 @@ describe('runMigrations', () => {
       { version: 1, name: '0001_init' },
       { version: 3, name: '0003_compilations_fix' },
       { version: 4, name: '0004_project_memory' },
+      { version: 5, name: '0005_semantic_context' },
     ]);
   });
 
@@ -50,7 +51,7 @@ describe('runMigrations', () => {
     );
     const second = await runMigrations(runner);
     expect(second.applied).toEqual([]);
-    expect(second.currentVersion).toBe(4);
+    expect(second.currentVersion).toBe(5);
     const rows = sqlite.prepare('SELECT id FROM projects').all();
     expect(rows).toHaveLength(1);
   });
@@ -71,12 +72,12 @@ describe('runMigrations', () => {
       { version: 2, name: '0002_probe', sql: 'CREATE TABLE probe_table (id TEXT PRIMARY KEY);' },
     ];
     const report = await runMigrations(runner, withProbe);
-    expect(report.applied).toEqual([1, 2, 3, 4]);
+    expect(report.applied).toEqual([1, 2, 3, 4, 5]);
     expect(tableExists('probe_table')).toBe(true);
 
     const rerun = await runMigrations(runner, withProbe);
     expect(rerun.applied).toEqual([]);
-    expect(rerun.currentVersion).toBe(4);
+    expect(rerun.currentVersion).toBe(5);
   });
 
   it('rolls back a failing migration completely', async () => {

@@ -18,6 +18,8 @@ export interface GitSnapshot {
     untracked: string[];
     diffStat: string;
   };
+  /** Bounded tracked-file diff for semantic refresh; never used as authority. */
+  diff?: string;
   branch: string | null;
 }
 
@@ -28,6 +30,7 @@ interface GitInspectResult {
   unstaged: string[];
   untracked: string[];
   diffStat: string;
+  diff?: string;
   branch: string | null;
 }
 
@@ -45,6 +48,7 @@ export async function getGitSnapshot(projectId: string): Promise<GitSnapshot> {
         diffStat: raw.diffStat ?? '',
       },
       branch: raw.branch,
+      diff: raw.diff ?? '',
     };
   } catch {
     return {
@@ -52,6 +56,7 @@ export async function getGitSnapshot(projectId: string): Promise<GitSnapshot> {
       head: null,
       uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' },
       branch: null,
+      diff: '',
     };
   }
 }

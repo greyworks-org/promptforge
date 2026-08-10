@@ -3,6 +3,7 @@ import { getMemory } from '../services/memoryService';
 import { getGitSnapshot } from '../services/gitState';
 import { getCompilation } from '../services/historyService';
 import { getProject } from '../services/projectsService';
+import { refreshSemanticContextIfNeeded } from '../services/semanticContext';
 import { assembleSnapshot } from '../handoff/snapshot';
 import { classifyProgress } from '../handoff/progress';
 import { renderHandoffClaudeCode } from '../handoff/renderClaudeCode';
@@ -25,18 +26,20 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
   const [runtime, setRuntime] = useState<Runtime>('codex');
   const [output, setOutput] = useState<string>('');
   const [progressSummary, setProgressSummary] = useState<string>('');
+  const [contextStatus, setContextStatus] = useState<string>('Updating project context…');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [project, memory, git] = await Promise.all([
+        const [project, initialMemory, git] = await Promise.all([
           getProject(projectId),
           getMemory(projectId),
           getGitSnapshot(projectId),
         ]);
         if (cancelled) return;
         if (!project) throw new Error('The registered project could not be found.');
+        let memory = initialMemory;
 
         // Retrieve active task from project memory + compilation history.
         let currentTask: TaskSpec | null = null;
@@ -49,6 +52,20 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
               currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
             }
           } catch { /* task unavailable — continue without */ }
+        }
+
+        const refreshed = await refreshSemanticContextIfNeeded({
+          projectId,
+          repoPath: project.repoPath,
+          memory,
+          git,
+          currentTask,
+        });
+        memory = refreshed.memory;
+        if (refreshed.state === 'unavailable') {
+          setContextStatus('Git state current · semantic context unavailable');
+        } else {
+          setContextStatus('Fresh');
         }
 
         const snap = assembleSnapshot({
@@ -136,7 +153,7 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Continue: {projectName}</h2>
-          <p className="text-xs text-zinc-500">{progressSummary}</p>
+          <p className="text-xs text-zinc-500">Context: {contextStatus} · {progressSummary}</p>
         </div>
         <button onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-700">
           Close

@@ -12,6 +12,7 @@ pub struct GitInspectResult {
     pub unstaged: Vec<String>,
     pub untracked: Vec<String>,
     pub diff_stat: String,
+    pub diff: String,
     pub branch: Option<String>,
 }
 
@@ -102,6 +103,7 @@ pub fn git_inspect(repo_path: String) -> Result<GitInspectResult, String> {
             unstaged: vec![],
             untracked: vec![],
             diff_stat: String::new(),
+            diff: String::new(),
             branch: None,
         });
     }
@@ -152,6 +154,11 @@ pub fn git_inspect(repo_path: String) -> Result<GitInspectResult, String> {
     }
 
     let diff_stat = run_git(&repo_path, &["diff", "--stat"]).unwrap_or_default();
+    let diff = run_git(&repo_path, &["diff", "HEAD", "--no-ext-diff", "--unified=20"])
+        .unwrap_or_default()
+        .chars()
+        .take(30_000)
+        .collect();
 
     Ok(GitInspectResult {
         is_repo: true,
@@ -160,6 +167,7 @@ pub fn git_inspect(repo_path: String) -> Result<GitInspectResult, String> {
         unstaged,
         untracked,
         diff_stat,
+        diff,
         branch,
     })
 }

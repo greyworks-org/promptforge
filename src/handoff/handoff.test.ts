@@ -21,6 +21,7 @@ function makeMemory(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     relevantFiles: ['src/components/Login.tsx'],
     lastTest: { commands: ['pnpm test'], results: '34/34 passed', at: '2026-08-07T00:00:00Z' },
     baseCommit: 'abc123',
+    semanticContext: null,
     updatedAt: '2026-08-07T00:00:00Z',
     ...overrides,
   };

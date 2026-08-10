@@ -63,6 +63,44 @@ export function renderHandoffMetadata(
   sections.push(handoffTarget);
   sections.push('');
 
+  const semantic = snapshot.memory.semanticContext;
+  if (semantic?.status === 'fresh' && semantic.snapshot) {
+    const state = semantic.snapshot;
+    sections.push('## Live implementation state');
+    sections.push('Observed completed:');
+    for (const item of state.observed_completed) sections.push(`- ${item}`);
+    if (state.observed_completed.length === 0) sections.push('- None recorded.');
+    sections.push('Observed partial:');
+    for (const item of state.observed_partial) sections.push(`- ${item}`);
+    if (state.observed_partial.length === 0) sections.push('- None recorded.');
+    sections.push('Changed files:');
+    for (const file of state.changed_files) sections.push(`- ${file.path} → ${file.description}`);
+    if (state.changed_files.length === 0) sections.push('- No semantic file descriptions recorded.');
+    sections.push('Validation evidence:');
+    for (const item of state.validation_evidence) sections.push(`- ${item}`);
+    if (state.validation_evidence.length === 0) sections.push('- None recorded.');
+    sections.push('Acceptance requiring verification:');
+    for (const item of state.acceptance_requiring_verification) sections.push(`- ${item}`);
+    sections.push('Known blockers:');
+    for (const item of state.blockers_observed) sections.push(`- ${item}`);
+    if (state.blockers_observed.length === 0) sections.push('- None observed.');
+    if (state.architecture_facts_observed.length > 0) {
+      sections.push('Architecture facts observed:');
+      for (const item of state.architecture_facts_observed) sections.push(`- ${item}`);
+    }
+    if (state.risks_observed.length > 0) {
+      sections.push('Risks observed:');
+      for (const item of state.risks_observed) sections.push(`- ${item}`);
+    }
+    sections.push(`Immediate continuation: ${state.immediate_next_action}`);
+    sections.push('The current repository is authoritative. Use this semantic snapshot as evidence-backed continuation context, verify ambiguous items, and do not redo already-implemented work.');
+    sections.push('');
+  } else if (semantic?.status === 'unavailable') {
+    sections.push('## Context status');
+    sections.push('Git state current · semantic context unavailable');
+    sections.push('');
+  }
+
   sections.push('## Repository');
   sections.push(`Repository: \`${snapshot.repoPath}\``);
   sections.push('Work only in this repository.');

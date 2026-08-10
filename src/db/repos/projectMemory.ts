@@ -13,8 +13,33 @@ const memoryRowSchema = z.object({
   relevant_files_json: z.string().default('[]'),
   last_test_json: z.string().nullable(),
   base_commit: z.string().nullable(),
+  semantic_context_json: z.string().nullable(),
   updated_at: z.string().min(1),
 });
+
+export interface SemanticSnapshot {
+  project_id: string;
+  repo_fingerprint: string;
+  generated_at: string;
+  current_task_id: string | null;
+  observed_completed: string[];
+  observed_partial: string[];
+  acceptance_requiring_verification: string[];
+  changed_files: Array<{ path: string; description: string }>;
+  validation_evidence: string[];
+  architecture_facts_observed: string[];
+  blockers_observed: string[];
+  risks_observed: string[];
+  immediate_next_action: string;
+}
+
+export interface SemanticContextState {
+  fingerprint: string;
+  attemptedAt: string;
+  status: 'fresh' | 'unavailable';
+  snapshot: SemanticSnapshot | null;
+  error?: string;
+}
 
 export interface MemoryRecord {
   projectId: string;
@@ -28,6 +53,7 @@ export interface MemoryRecord {
   relevantFiles: string[];
   lastTest: { commands: string[]; results: string; at: string } | null;
   baseCommit: string | null;
+  semanticContext: SemanticContextState | null;
   updatedAt: string;
 }
 
@@ -48,6 +74,7 @@ function rowToRecord(r: z.infer<typeof memoryRowSchema>): MemoryRecord {
     relevantFiles: safeJson<string[]>(r.relevant_files_json, []),
     lastTest: r.last_test_json ? safeJson(r.last_test_json, null) : null,
     baseCommit: r.base_commit,
+    semanticContext: r.semantic_context_json ? safeJson<SemanticContextState | null>(r.semantic_context_json, null) : null,
     updatedAt: r.updated_at,
   };
 }
@@ -84,6 +111,7 @@ export function createProjectMemoryRepository(runner: QueryRunner): ProjectMemor
         if (patch.relevantFiles !== undefined) { sets.push('relevant_files_json = ?'); params.push(JSON.stringify(patch.relevantFiles)); }
         if (patch.lastTest !== undefined) { sets.push('last_test_json = ?'); params.push(patch.lastTest ? JSON.stringify(patch.lastTest) : null); }
         if (patch.baseCommit !== undefined) { sets.push('base_commit = ?'); params.push(patch.baseCommit); }
+        if (patch.semanticContext !== undefined) { sets.push('semantic_context_json = ?'); params.push(patch.semanticContext ? JSON.stringify(patch.semanticContext) : null); }
         sets.push('updated_at = ?'); params.push(now);
         params.push(projectId);
         if (sets.length > 0) {
@@ -93,8 +121,8 @@ export function createProjectMemoryRepository(runner: QueryRunner): ProjectMemor
         await runner.execute(
           `INSERT INTO project_memory (project_id, stack_json, current_phase, last_validated_task_id,
            current_task_id, next_task_json, decisions_json, blockers_json, relevant_files_json,
-           last_test_json, base_commit, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+           last_test_json, base_commit, semantic_context_json, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             projectId,
             JSON.stringify(patch.stack ?? []), patch.currentPhase ?? null,
@@ -103,7 +131,9 @@ export function createProjectMemoryRepository(runner: QueryRunner): ProjectMemor
             JSON.stringify(patch.decisions ?? []), JSON.stringify(patch.blockers ?? []),
             JSON.stringify(patch.relevantFiles ?? []),
             patch.lastTest ? JSON.stringify(patch.lastTest) : null,
-            patch.baseCommit ?? null, now,
+            patch.baseCommit ?? null,
+            patch.semanticContext ? JSON.stringify(patch.semanticContext) : null,
+            now,
           ],
         );
       }
