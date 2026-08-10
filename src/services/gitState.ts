@@ -34,10 +34,13 @@ interface GitInspectResult {
   branch: string | null;
 }
 
-export async function getGitSnapshot(projectId: string): Promise<GitSnapshot> {
+export async function getGitSnapshot(projectId: string, baseCommit?: string): Promise<GitSnapshot> {
   try {
     const root = await resolveProjectRoot(projectId);
-    const raw = await invokeIpc<GitInspectResult>('git_inspect', { repoPath: root });
+    const raw = await invokeIpc<GitInspectResult>('git_inspect', {
+      repoPath: root,
+      baseCommit: baseCommit ?? null,
+    });
     return {
       isRepo: raw.isRepo,
       head: raw.head,

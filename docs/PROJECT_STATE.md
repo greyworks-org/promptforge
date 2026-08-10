@@ -16,7 +16,7 @@
 ## Progress
 
 - **Current phase:** MVP v1 complete — all 11 phases implemented, release hardened, product polished.
-- **Last validated task:** MVP v1 live semantic context refresh (2026-08-10) — fingerprinted Continue refresh, persisted evidence-backed semantic snapshots, single-call provider fallback, and all release gates passed; manual golden-path UI test remains for the user.
+- **Last validated task:** MVP v1 committed external-change context edge case (2026-08-10) — prior semantic HEAD drives bounded commit-range evidence for clean HEAD changes; targeted tests, typecheck, and production build passed; manual golden-path UI test remains for the user.
 - **Current task:** none.
 - **Next task:** macOS .dmg packaging + signing/notarization (requires Apple Developer credentials).
 
@@ -76,14 +76,16 @@
 - 2026-08-10 · Continuity repair validated: successful compilations persist canonical `taskspec_json`; `project_memory.current_task_id` stores the owning compilation ID; Continue reloads the identical TaskSpec and deterministic handoff includes objective, acceptance criteria, and execution profile. Gates: targeted continuity 1/1; TypeScript 435/435; Rust 65/65; typecheck; production build; macOS `.app` bundle. Relevant files: `src/screens/CompilerScreen.tsx`, `src/services/historyService.ts`, `src/services/memoryService.ts`, `src/components/HandoffView.tsx`, `src/handoff/*`, `src/services/continuity.integration.test.ts`.
 - 2026-08-10 · Handoff hardening validated: registered repo path and safety instructions are explicit; inferred scope is framed for verification; original execution is separated from handoff target; inverted destructive-database wording is normalized; Git porcelain paths preserve their first character; generated/build paths are filtered from evidence. Gates: targeted 41/41 plus Rust path regression; TypeScript 439/439; Rust 66/66; typecheck; production build; macOS `.app` bundle.
 - 2026-08-10 · Live semantic context refresh validated: source-work fingerprints detect external changes while ignoring generated-only changes; semantic snapshots persist per project; unchanged fingerprints reuse without provider calls; failures remain mechanically handoffable without retry loops. Gates: targeted 56/56; TypeScript 446/446; Rust 66/66; typecheck; production build; macOS `.app` bundle.
+- 2026-08-10 · Committed external-change edge case validated: semantic snapshots retain HEAD A, Continue requests bounded A→B diff evidence for clean HEAD B, extracts committed source paths, refreshes once, and reuses at unchanged B. Targeted: 9 TypeScript + 19 Rust Git tests; typecheck; production build.
 
 ## Git checkpoint
 
-- **Latest commit:** `47fa59c` — v1 live semantic context refresh.
+- **Latest commit:** `a85239f` — committed external-change context edge case.
 - **Uncommitted changes:** none.
 
 ## Recent history
 
+- 2026-08-10 · PromptForge v1 committed external-change context edge case — previous semantic HEAD is used for bounded commit-range refresh evidence when the working tree is clean.
 - 2026-08-10 · PromptForge v1 live semantic context refresh — Continue fingerprints registered repository source state, performs at most one bounded provider refresh per changed fingerprint, persists semantic evidence, and integrates it into all runtime handoffs.
 - 2026-08-10 · PromptForge v1 handoff hardening — canonical repository path, evidence wording, execution/target labels, safety normalization, Git path parsing, and generated-path filtering.
 - 2026-08-10 · PromptForge v1 continuity repair — persisted TaskSpec recovery across Compiler → SQLite → reload → Continue/Handoff; persistence failures are surfaced; execution metadata is preserved; release gates passed.

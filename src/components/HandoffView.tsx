@@ -32,14 +32,14 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
     let cancelled = false;
     (async () => {
       try {
-        const [project, initialMemory, git] = await Promise.all([
+        const [project, initialMemory] = await Promise.all([
           getProject(projectId),
           getMemory(projectId),
-          getGitSnapshot(projectId),
         ]);
         if (cancelled) return;
         if (!project) throw new Error('The registered project could not be found.');
         let memory = initialMemory;
+        const git = await getGitSnapshot(projectId, memory.semanticContext?.snapshot?.head_commit ?? undefined);
 
         // Retrieve active task from project memory + compilation history.
         let currentTask: TaskSpec | null = null;

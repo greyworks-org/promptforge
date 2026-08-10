@@ -113,6 +113,28 @@ describe('live semantic context refresh', () => {
     expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes committed external changes from a clean commit-range diff', async () => {
+    const first = await refreshSemanticContextIfNeeded(input(cleanGit));
+    mockInvoke.mockClear();
+    const committedGit: GitSnapshot = {
+      ...cleanGit,
+      head: { ...cleanGit.head!, hash: 'head-2', subject: 'implement venue filter' },
+      diff: 'diff --git a/src/SourceCatalog.swift b/src/SourceCatalog.swift\n@@ -1 +1 @@\n-old query\n+new venue query',
+    };
+    const second = await refreshSemanticContextIfNeeded(input(committedGit, first.memory));
+    expect(second.state).toBe('fresh');
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    const call = mockInvoke.mock.calls[0];
+    const request = call[1] as { messages: Array<{ content: string }> };
+    expect(request.messages[1].content).toContain('src/SourceCatalog.swift');
+    expect(request.messages[1].content).toContain('new venue query');
+    expect(second.memory.semanticContext?.snapshot?.head_commit).toBe('head-2');
+    mockInvoke.mockClear();
+    const third = await refreshSemanticContextIfNeeded(input(committedGit, second.memory));
+    expect(third.state).toBe('reused');
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it('persists semantic meaning, changed-file descriptions, and task identity', async () => {
     const result = await refreshSemanticContextIfNeeded(input());
     const state = result.memory.semanticContext as SemanticContextState;

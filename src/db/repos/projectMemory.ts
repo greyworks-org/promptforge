@@ -20,6 +20,7 @@ const memoryRowSchema = z.object({
 export interface SemanticSnapshot {
   project_id: string;
   repo_fingerprint: string;
+  head_commit: string | null;
   generated_at: string;
   current_task_id: string | null;
   observed_completed: string[];

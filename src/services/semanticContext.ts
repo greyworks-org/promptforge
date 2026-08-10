@@ -52,11 +52,19 @@ function sourcePath(path: string): boolean {
   return !isBlockedFilePath(path) && !isBinaryByExtension(path);
 }
 
+function diffPaths(diff: string): string[] {
+  return diff
+    .split('\n')
+    .map((line) => line.match(/^diff --git a\/(.+) b\/(.+)$/)?.[2] ?? null)
+    .filter((path): path is string => path !== null && sourcePath(path));
+}
+
 function changedSourcePaths(git: GitSnapshot): string[] {
   return [...new Set([
     ...git.uncommitted.staged,
     ...git.uncommitted.unstaged,
     ...git.uncommitted.untracked,
+    ...diffPaths(git.diff ?? ''),
   ].filter(sourcePath))].sort();
 }
 
@@ -105,6 +113,7 @@ async function repositoryFingerprint(
     repoPath: input.repoPath,
     head: input.git.head?.hash ?? null,
     branch: input.git.branch,
+    paths,
     staged: input.git.uncommitted.staged.filter(sourcePath).sort(),
     unstaged: input.git.uncommitted.unstaged.filter(sourcePath).sort(),
     untracked: input.git.uncommitted.untracked.filter(sourcePath).sort(),
@@ -224,6 +233,7 @@ export async function refreshSemanticContextIfNeeded(input: SemanticRefreshInput
     const snapshot: SemanticSnapshot = {
       project_id: input.projectId,
       repo_fingerprint: fingerprint,
+      head_commit: input.git.head?.hash ?? null,
       generated_at: new Date().toISOString(),
       current_task_id: input.currentTask?.task_id ?? null,
       observed_completed: parsed.observed_completed,
