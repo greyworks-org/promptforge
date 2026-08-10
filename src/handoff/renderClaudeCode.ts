@@ -1,5 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
+import { renderHandoffMetadata } from './metadata';
 
 /**
  * Claude Code handoff renderer (Phase 10).
@@ -45,6 +46,9 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
       sections.push('');
     }
   }
+
+  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push('');
 
   // Decisions.
   if (snapshot.memory.decisions.length > 0) {
@@ -111,7 +115,7 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
 
   // Acceptance criteria (verbatim).
   if (snapshot.currentTask && snapshot.currentTask.acceptance_criteria.length > 0) {
-    sections.push('## Acceptance criteria');
+    sections.push('## Acceptance (remaining)');
     for (const ac of snapshot.currentTask.acceptance_criteria) {
       sections.push(`- ${ac}`);
     }

@@ -29,6 +29,7 @@ export interface ProjectsScreenProps {
   onStartOnboarding?: (projectId?: string) => void;
   /** Callback to generate a handoff for an existing project. */
   onContinue?: (projectId: string, projectName: string) => void;
+  onActiveChanged?: (projectId: string) => void;
 }
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -45,7 +46,7 @@ function friendlyError(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
-export function ProjectsScreen({ deps, onStartOnboarding, onContinue }: ProjectsScreenProps) {
+export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onActiveChanged }: ProjectsScreenProps) {
   const list = deps?.listProjects ?? listProjects;
   const register = deps?.registerProject ?? registerProject;
   const update = deps?.updateProject ?? updateProject;
@@ -136,6 +137,7 @@ export function ProjectsScreen({ deps, onStartOnboarding, onContinue }: Projects
     try {
       await setActive(projectId);
       await refresh();
+      onActiveChanged?.(projectId);
     } catch (err) {
       setActionError(friendlyError(err));
     } finally {

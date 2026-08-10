@@ -8,6 +8,7 @@ import { renderHandoffClaudeCode } from '../handoff/renderClaudeCode';
 import { renderHandoffQwenCode } from '../handoff/renderQwenCode';
 import { renderHandoffCodex } from '../handoff/renderCodex';
 import type { TaskSpec } from '../schemas/taskspec';
+import type { CompilationRecord } from '../db/repos/compilations';
 
 export interface HandoffViewProps {
   projectId: string;
@@ -36,10 +37,12 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
 
         // Retrieve active task from project memory + compilation history.
         let currentTask: TaskSpec | null = null;
+        let currentCompilation: CompilationRecord | null = null;
         if (memory.currentTaskId) {
           try {
             const comp = await getCompilation(memory.currentTaskId);
             if (comp?.taskspecJson) {
+              currentCompilation = comp;
               currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
             }
           } catch { /* task unavailable — continue without */ }
@@ -51,6 +54,7 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
           memory,
           git,
           currentTask,
+          currentCompilation,
         });
         if (cancelled) return;
 
@@ -92,7 +96,16 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
           getMemory(projectId),
           getGitSnapshot(projectId),
         ]);
-        const snap = assembleSnapshot({ projectId, projectName, memory, git, currentTask: null });
+        let currentTask: TaskSpec | null = null;
+        let currentCompilation: CompilationRecord | null = null;
+        if (memory.currentTaskId) {
+          const comp = await getCompilation(memory.currentTaskId);
+          if (comp?.taskspecJson) {
+            currentCompilation = comp;
+            currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
+          }
+        }
+        const snap = assembleSnapshot({ projectId, projectName, memory, git, currentTask, currentCompilation });
         const fn = rt === 'claude-code' ? renderHandoffClaudeCode
           : rt === 'qwen-code' ? renderHandoffQwenCode
           : renderHandoffCodex;

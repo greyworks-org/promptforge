@@ -35,6 +35,7 @@ export interface RecordCompileInput {
   contextDocIds: string[];
   contextSent: string;
   status: string;
+  taskspecJson?: string | null;
   error?: string | null;
 }
 

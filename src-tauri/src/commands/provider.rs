@@ -62,10 +62,26 @@ fn resolve_key(
     }
 
     // Read from Keychain.
-    let key = secrets
-        .get(account)
-        .map_err(|_| ProviderFailure::config("Keychain unavailable on this machine."))?
-        .ok_or_else(|| ProviderFailure::config("No API key stored — add one in Settings."))?;
+    let key = match secrets.get(account) {
+        Ok(Some(k)) => k,
+        Ok(None) => {
+            return Err(ProviderFailure::config(
+                "No API key stored — add one in Settings.",
+            ));
+        }
+        Err(e) => {
+            let msg = format!("{}", e);
+            if msg.contains("denied") || msg.contains("cancel") || msg.contains("allow") {
+                return Err(ProviderFailure::config(
+                    "Keychain access was denied. Click Allow when macOS prompts for Keychain access.",
+                ));
+            }
+            return Err(ProviderFailure::config(&format!(
+                "Keychain error: {}. The macOS Keychain may need to be unlocked, or the app may need to be re-authorized in Keychain Access.",
+                msg
+            )));
+        }
+    };
 
     // Cache for session.
     if let Ok(mut cache) = cache.lock() {

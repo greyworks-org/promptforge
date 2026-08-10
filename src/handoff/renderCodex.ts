@@ -1,5 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
+import { renderHandoffMetadata } from './metadata';
 
 export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
   const progress = classifyProgress(snapshot);
@@ -58,7 +59,7 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
     }
 
     if (t.acceptance_criteria.length > 0) {
-      sections.push('### Acceptance criteria');
+      sections.push('### Acceptance (remaining)');
       for (const ac of t.acceptance_criteria) sections.push(`- ${ac}`);
       sections.push('');
     }
@@ -85,6 +86,9 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
       sections.push('');
     }
   }
+
+  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push('');
 
   // Decisions.
   if (snapshot.memory.decisions.length > 0) {

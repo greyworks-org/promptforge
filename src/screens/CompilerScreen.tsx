@@ -17,12 +17,10 @@ import { resolveExecutionProfile } from '../services/providerRegistry';
  */
 
 export interface CompilerScreenProps {
-  activeProfile: ProviderProfile | null;
   activeProjectId: string | null;
 }
 
 export function CompilerScreen({
-  activeProfile,
   activeProjectId,
 }: CompilerScreenProps) {
   const [rawRequest, setRawRequest] = useState('');
@@ -73,8 +71,8 @@ export function CompilerScreen({
   const [answers, setAnswers] = useState<string[]>([]);
 
   const handleCompile = useCallback(async () => {
-    if (!activeProfile || !activeProjectId) {
-      setError('Configure a provider and select a project first.');
+    if (!activeProjectId) {
+      setError('Select a project first.');
       return;
     }
     if (rawRequest.trim().length === 0) {
@@ -82,14 +80,16 @@ export function CompilerScreen({
       return;
     }
 
-    // Validate runtime + provider + model combination.
+    // Use the dropdown-selected profile (not the prop, which may still be loading).
     const selectedProfile = availableProfiles.find((p) => p.id === selectedProviderId);
-    const providerLabel = selectedProfile?.label ?? '';
-    const resolved = resolveExecutionProfile(targetRuntime, providerLabel, modelId);
-    if (!resolved.ok) { setError(resolved.error); return; }
+    if (!selectedProfile) {
+      setError('Select a provider profile.');
+      return;
+    }
 
-    // Use the selected provider profile for the actual API call.
-    const compileProfile: ProviderProfile = selectedProfile ?? activeProfile;
+    // Validate runtime + provider + model combination.
+    const resolved = resolveExecutionProfile(targetRuntime, selectedProfile.label, modelId);
+    if (!resolved.ok) { setError(resolved.error); return; }
 
     setError(null);
     setBusy(true);
@@ -106,7 +106,7 @@ export function CompilerScreen({
           : (depth as CompileRequest['executionMode']);
 
       const request: CompileRequest = {
-        profile: compileProfile,
+        profile: selectedProfile,
         projectId: activeProjectId,
         rawRequest: rawRequest.trim(),
         executionMode: resolvedMode,
@@ -124,7 +124,7 @@ export function CompilerScreen({
         setAnswers([]);
         // Persist task as active project work.
         try {
-          await recordCompilation({
+          const compilation = await recordCompilation({
             projectId: activeProjectId,
             rawRequest: rawRequest.trim(),
             taskType: result.taskSpec.task_type,
@@ -132,15 +132,18 @@ export function CompilerScreen({
             targetModel: result.taskSpec.target_model,
             agentRuntime: result.taskSpec.agent_runtime,
             executionProfile: result.taskSpec.execution_profile,
-            providerLabel: activeProfile?.label ?? 'unknown',
-            modelId: activeProfile?.modelId ?? 'unknown',
+            providerLabel: selectedProfile.label,
+            modelId: selectedProfile.modelId,
             contextDocIds: [],
             contextSent: result.contextSent,
             status: 'done',
+            taskspecJson: JSON.stringify(result.taskSpec),
           });
-          await recordCompileSuccess(activeProjectId, result.taskSpec.task_id);
-        } catch {
-          // Non-fatal — task persists in pipeline state.
+          // project_memory.current_task_id references compilations.id. The
+          // TaskSpec's TASK-* id is preserved inside taskspec_json.
+          await recordCompileSuccess(activeProjectId, compilation.id);
+        } catch (err) {
+          setError(`Compilation succeeded but could not be persisted: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     } catch (err) {
@@ -148,7 +151,7 @@ export function CompilerScreen({
     } finally {
       setBusy(false);
     }
-  }, [activeProfile, activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, state, answers]);
+  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, state, answers]);
 
   const handleAnswersSubmit = useCallback(
     (newAnswers: string[]) => {
@@ -253,13 +256,16 @@ export function CompilerScreen({
       </div>
 
       {/* Compile button */}
+      {!activeProjectId && (
+        <p className="text-sm text-amber-600">Select an active project in Projects first.</p>
+      )}
       <button
         type="button"
         onClick={handleCompile}
-        disabled={busy || !activeProfile || !activeProjectId}
+        disabled={busy || !activeProjectId}
         className="rounded-md bg-zinc-900 px-6 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
       >
-        {busy ? 'Compiling…' : 'Compile'}
+        {busy ? 'Compiling…' : !activeProjectId ? 'No active project' : 'Compile'}
       </button>
 
       {/* Error */}

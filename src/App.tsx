@@ -7,9 +7,8 @@ import { ResultScreen } from './screens/ResultScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { HandoffView } from './components/HandoffView';
 import type { TaskSpec } from './schemas/taskspec';
-import type { ProviderProfile } from './schemas/providerProfile';
 import { PROFILES } from './profiles/registry';
-import { loadProfile } from './services/settingsService';
+import { getActiveProjectId } from './services/projectsService';
 
 type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history' | 'handoff';
 
@@ -27,10 +26,9 @@ export default function App() {
   const contextSent = '';
   const rawRequest = '';
   const activeProfile = PROFILES['deepseek-v4-pro-claude-code'] ?? null;
-  const [providerProfile, setProviderProfile] = useState<ProviderProfile | null>(null);
 
   useEffect(() => {
-    loadProfile().then(setProviderProfile).catch(() => {});
+    getActiveProjectId().then((id) => { if (id) setActiveProjectId(id); }).catch(() => {});
   }, []);
 
   return (
@@ -68,6 +66,7 @@ export default function App() {
               setHandoffProjectName(projectName);
               setScreen('handoff');
             }}
+            onActiveChanged={(projectId) => setActiveProjectId(projectId)}
           />
         )}
         {screen === 'settings' && <SettingsScreen />}
@@ -79,7 +78,6 @@ export default function App() {
         )}
         {screen === 'compiler' && (
           <CompilerScreen
-            activeProfile={providerProfile}
             activeProjectId={activeProjectId}
           />
         )}

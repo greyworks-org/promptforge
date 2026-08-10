@@ -35,10 +35,10 @@ export async function updateMemory(
 /** Advance the task chain after a successful compilation. */
 export async function recordCompileSuccess(
   projectId: string,
-  taskId: string,
+  compilationId: string,
 ): Promise<MemoryRecord> {
   return updateMemory(projectId, {
-    currentTaskId: taskId,
+    currentTaskId: compilationId,
   });
 }
 

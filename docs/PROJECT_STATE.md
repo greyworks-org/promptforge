@@ -16,7 +16,7 @@
 ## Progress
 
 - **Current phase:** MVP v1 complete — all 11 phases implemented, release hardened, product polished.
-- **Last validated task:** MVP finalization (2026-08-08) — smoke test passed, production builds produced.
+- **Last validated task:** MVP v1 continuity repair finalization (2026-08-10) — targeted persistence/reload/handoff regression and all release gates passed; manual golden-path UI test remains for the user.
 - **Current task:** none.
 - **Next task:** macOS .dmg packaging + signing/notarization (requires Apple Developer credentials).
 
@@ -73,14 +73,16 @@
 - 2026-08-05 · Provider-connection fix battery: `corepack pnpm typecheck` ✓ · `corepack pnpm test` 34/34 ✓ · `cargo test` 17/17 ✓ (adds 2 command-level tests: empty model id, missing stored key → config class) · `cargo build` 0 warnings ✓ · `corepack pnpm build` ✓. Manual verification in the running app (mock provider, pid-verified windows): pre-fix reproduction showed ✗ reachable / ✗ model answered / Error class: unknown; post-fix shows "Connection successful." with all ✓ (auth accepted, content is JSON, JSON mode requested and honored, usage present, latency 2 ms) and mock-server log confirms `POST /v1/chat/completions` with `jsonMode=requested`; auth-failure path (mock started with a different expected key) renders ✗ Authentication rejected + Error class: auth. No secrets logged anywhere.
 - 2026-08-05 · Phase 1 battery: `corepack pnpm typecheck` ✓ · `corepack pnpm test` 34/34 ✓ (profile validation, key persistence/no-leak, mock connection success/auth-fail/invalid-JSON/timeout/unreachable, settings-screen states) · `cargo test` 15/15 ✓ (keychain, URL policy, body shape, status classes, key-leak guard, live HTTP: success/401/timeout/unreachable) · `cargo build` 0 warnings ✓ · `corepack pnpm build` ✓ · app launch: window "PromptForge Local" 1080×760 confirmed via System Events.
 - Secret-leak scan: no logging statements in Rust; mock server never logs the Authorization header; only fixture/test key literals in repo; no app data persisted yet.
+- 2026-08-10 · Continuity repair validated: successful compilations persist canonical `taskspec_json`; `project_memory.current_task_id` stores the owning compilation ID; Continue reloads the identical TaskSpec and deterministic handoff includes objective, acceptance criteria, and execution profile. Gates: targeted continuity 1/1; TypeScript 435/435; Rust 65/65; typecheck; production build; macOS `.app` bundle. Relevant files: `src/screens/CompilerScreen.tsx`, `src/services/historyService.ts`, `src/services/memoryService.ts`, `src/components/HandoffView.tsx`, `src/handoff/*`, `src/services/continuity.integration.test.ts`.
 
 ## Git checkpoint
 
-- **Latest commit:** Phase 3 closing commit (pending).
-- **Uncommitted changes:** none (Phase 3 being committed).
+- **Latest commit:** `185e325` — v1 continuity repair.
+- **Uncommitted changes:** none.
 
 ## Recent history
 
+- 2026-08-10 · PromptForge v1 continuity repair — persisted TaskSpec recovery across Compiler → SQLite → reload → Continue/Handoff; persistence failures are surfaced; execution metadata is preserved; release gates passed.
 - 2026-08-05 · Phase 0 — planning foundation (spec conversion, docs, TaskSpec schema, repo init).
 - 2026-08-05 · Phase 0.1 — TaskSpec contract split; Project Memory + Agent Handoff architecture; fixtures validated with AJV.
 - 2026-08-05 · Phase 1 — macOS app foundation: keychain commands, provider transport, Settings screen, mock provider; all tests green; awaiting review.

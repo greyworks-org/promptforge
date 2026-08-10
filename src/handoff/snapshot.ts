@@ -1,6 +1,7 @@
 import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
 import type { GitSnapshot } from '../services/gitState';
+import type { CompilationRecord } from '../db/repos/compilations';
 
 /**
  * Handoff snapshot assembly (Phase 10).
@@ -22,6 +23,8 @@ export interface HandoffSnapshot {
   git: GitSnapshot;
   /** The current canonical TaskSpec (if a task is in flight). */
   currentTask: TaskSpec | null;
+  /** The persisted compilation that owns the current TaskSpec. */
+  currentCompilation: CompilationRecord | null;
   /** When the snapshot was assembled. */
   assembledAt: string;
 }
@@ -39,6 +42,7 @@ export interface AssembleSnapshotInput {
   memory: MemoryRecord;
   git: GitSnapshot;
   currentTask: TaskSpec | null;
+  currentCompilation?: CompilationRecord | null;
 }
 
 /**
@@ -60,15 +64,17 @@ export function assembleSnapshot(input: AssembleSnapshotInput): HandoffSnapshot 
         `Task project_id '${input.currentTask.project_id}' does not match handoff projectId '${input.projectId}'`,
       );
     }
-    if (input.memory.currentTaskId !== null && input.memory.currentTaskId !== input.currentTask.task_id) {
+    const expectedMemoryId = input.currentCompilation?.id ?? input.currentTask.task_id;
+    if (input.memory.currentTaskId !== null && input.memory.currentTaskId !== expectedMemoryId) {
       throw new HandoffIsolationError(
-        `Memory currentTaskId '${input.memory.currentTaskId}' does not match task_id '${input.currentTask.task_id}'`,
+        `Memory currentTaskId '${input.memory.currentTaskId}' does not match '${expectedMemoryId}'`,
       );
     }
   }
 
   return {
     ...input,
+    currentCompilation: input.currentCompilation ?? null,
     assembledAt: new Date().toISOString(),
   };
 }

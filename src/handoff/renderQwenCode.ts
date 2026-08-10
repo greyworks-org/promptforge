@@ -1,5 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
+import { renderHandoffMetadata } from './metadata';
 
 /**
  * Qwen Code handoff renderer (Phase 10).
@@ -50,6 +51,9 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
       sections.push('');
     }
   }
+
+  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push('');
 
   if (snapshot.memory.decisions.length > 0) {
     sections.push('## Decisions');
