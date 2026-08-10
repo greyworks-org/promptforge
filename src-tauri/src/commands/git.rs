@@ -66,7 +66,9 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("git error: {}", stderr.trim()));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    // Preserve leading spaces: porcelain status uses them to encode the
+    // index state. Trimming them drops the first character of a path.
+    Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
 }
 
 /// Read-only git inspection.  Returns structured metadata only — never
@@ -224,6 +226,24 @@ mod tests {
         Command::new("git").args(["init"]).current_dir(&dir).status().unwrap();
         let result = git_inspect(dir.to_string_lossy().into_owned()).unwrap();
         assert!(result.is_repo);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preserves_modified_path_prefix_from_porcelain_status() {
+        let dir = tmp_git_dir("path-preservation");
+        Command::new("git").args(["init"]).current_dir(&dir).status().unwrap();
+        Command::new("git").args(["-c", "user.name=PromptForge", "-c", "user.email=test@example.com", "add", "."])
+            .current_dir(&dir).status().unwrap();
+        std::fs::create_dir_all(dir.join("App")).unwrap();
+        std::fs::write(dir.join("App/AppModel.swift"), "struct AppModel {}\n").unwrap();
+        Command::new("git").args(["add", "App/AppModel.swift"]).current_dir(&dir).status().unwrap();
+        Command::new("git").args(["-c", "user.name=PromptForge", "-c", "user.email=test@example.com", "commit", "-m", "baseline"])
+            .current_dir(&dir).status().unwrap();
+        std::fs::write(dir.join("App/AppModel.swift"), "struct AppModel { let ready = true }\n").unwrap();
+
+        let result = git_inspect(dir.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(result.unstaged, vec!["App/AppModel.swift"]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

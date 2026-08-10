@@ -1,6 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
-import { renderHandoffMetadata } from './metadata';
+import { filterHandoffDiffStat, renderHandoffMetadata } from './metadata';
 
 /**
  * Qwen Code handoff renderer (Phase 10).
@@ -40,7 +40,7 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
     }
 
     if (t.acceptance_criteria.length > 0) {
-      sections.push('### Acceptance criteria');
+      sections.push('### Acceptance requiring verification');
       for (const ac of t.acceptance_criteria) sections.push(`- ${ac}`);
       sections.push('');
     }
@@ -52,7 +52,7 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
     }
   }
 
-  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push(renderHandoffMetadata(snapshot, progress, 'Qwen Code'));
   sections.push('');
 
   if (snapshot.memory.decisions.length > 0) {
@@ -64,8 +64,9 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
   if (progress.isInterrupted) {
     sections.push('## Uncommitted work detected');
     sections.push('');
-    if (snapshot.git.uncommitted.diffStat) {
-      sections.push(`${snapshot.git.uncommitted.diffStat}`);
+    const diffStat = filterHandoffDiffStat(snapshot.git.uncommitted.diffStat);
+    if (diffStat) {
+      sections.push(diffStat);
       sections.push('');
     }
     sections.push('Review the uncommitted changes with the user before continuing.');
@@ -81,7 +82,7 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
   }
 
   if (progress.remaining.length > 0) {
-    sections.push('## To do');
+    sections.push('## Original task items to reconcile against current repository state');
     for (const r of progress.remaining) sections.push(`- ${r.item}`);
     sections.push('');
   }

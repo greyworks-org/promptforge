@@ -1,6 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
-import { renderHandoffMetadata } from './metadata';
+import { filterHandoffDiffStat, renderHandoffMetadata } from './metadata';
 
 /**
  * Claude Code handoff renderer (Phase 10).
@@ -47,7 +47,7 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
     }
   }
 
-  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push(renderHandoffMetadata(snapshot, progress, 'Claude Code'));
   sections.push('');
 
   // Decisions.
@@ -82,8 +82,9 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
     sections.push('3. Do not perform destructive git operations without explicit confirmation.');
     sections.push('');
 
-    if (snapshot.git.uncommitted.diffStat) {
-      sections.push(`Diff stat: ${snapshot.git.uncommitted.diffStat}`);
+    const diffStat = filterHandoffDiffStat(snapshot.git.uncommitted.diffStat);
+    if (diffStat) {
+      sections.push(`Diff stat: ${diffStat}`);
       sections.push('');
     }
 
@@ -97,7 +98,7 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
   }
 
   if (progress.remaining.length > 0) {
-    sections.push('### Remaining');
+    sections.push('### Original task items to reconcile against current repository state');
     for (const r of progress.remaining) {
       sections.push(`- ${r.item}`);
     }
@@ -115,7 +116,7 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
 
   // Acceptance criteria (verbatim).
   if (snapshot.currentTask && snapshot.currentTask.acceptance_criteria.length > 0) {
-    sections.push('## Acceptance (remaining)');
+    sections.push('## Acceptance requiring verification');
     for (const ac of snapshot.currentTask.acceptance_criteria) {
       sections.push(`- ${ac}`);
     }

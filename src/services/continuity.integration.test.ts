@@ -105,6 +105,7 @@ describe('compiler to Continue persistence', () => {
     const snapshot = assembleSnapshot({
       projectId,
       projectName: 'Fixture',
+      repoPath: '/tmp/fixture',
       memory: reloadedMemory,
       git,
       currentTask: reloadedTask,

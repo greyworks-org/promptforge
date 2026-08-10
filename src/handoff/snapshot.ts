@@ -17,6 +17,8 @@ export interface HandoffSnapshot {
   projectId: string;
   /** The project's name (from the registry). */
   projectName: string;
+  /** The project's canonical registered repository path. */
+  repoPath: string;
   /** The project's current memory record. */
   memory: MemoryRecord;
   /** Live git state (computed on every assembly). */
@@ -39,6 +41,7 @@ export class HandoffIsolationError extends Error {
 export interface AssembleSnapshotInput {
   projectId: string;
   projectName: string;
+  repoPath: string;
   memory: MemoryRecord;
   git: GitSnapshot;
   currentTask: TaskSpec | null;

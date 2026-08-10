@@ -27,6 +27,10 @@ Rules:
 8. Include only context that materially affects the task.
 9. Never include secrets, API keys or personal data.
 10. Require confirmation before destructive or irreversible actions.
+   Write safety constraints as explicit prohibitions, for example:
+   "Do not make destructive database changes without explicit approval."
+   Never invert this meaning with wording such as "changes are required
+   without approval."
 11. Return valid JSON matching the supplied schema.
 12. Avoid explanatory prose outside the JSON.
 

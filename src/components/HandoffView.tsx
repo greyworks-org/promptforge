@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getMemory } from '../services/memoryService';
 import { getGitSnapshot } from '../services/gitState';
 import { getCompilation } from '../services/historyService';
+import { getProject } from '../services/projectsService';
 import { assembleSnapshot } from '../handoff/snapshot';
 import { classifyProgress } from '../handoff/progress';
 import { renderHandoffClaudeCode } from '../handoff/renderClaudeCode';
@@ -29,11 +30,13 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
     let cancelled = false;
     (async () => {
       try {
-        const [memory, git] = await Promise.all([
+        const [project, memory, git] = await Promise.all([
+          getProject(projectId),
           getMemory(projectId),
           getGitSnapshot(projectId),
         ]);
         if (cancelled) return;
+        if (!project) throw new Error('The registered project could not be found.');
 
         // Retrieve active task from project memory + compilation history.
         let currentTask: TaskSpec | null = null;
@@ -51,6 +54,7 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
         const snap = assembleSnapshot({
           projectId,
           projectName,
+          repoPath: project.repoPath,
           memory,
           git,
           currentTask,
@@ -92,10 +96,12 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
     setLoading(true);
     (async () => {
       try {
-        const [memory, git] = await Promise.all([
+        const [project, memory, git] = await Promise.all([
+          getProject(projectId),
           getMemory(projectId),
           getGitSnapshot(projectId),
         ]);
+        if (!project) throw new Error('The registered project could not be found.');
         let currentTask: TaskSpec | null = null;
         let currentCompilation: CompilationRecord | null = null;
         if (memory.currentTaskId) {
@@ -105,7 +111,7 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
             currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
           }
         }
-        const snap = assembleSnapshot({ projectId, projectName, memory, git, currentTask, currentCompilation });
+        const snap = assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation });
         const fn = rt === 'claude-code' ? renderHandoffClaudeCode
           : rt === 'qwen-code' ? renderHandoffQwenCode
           : renderHandoffCodex;

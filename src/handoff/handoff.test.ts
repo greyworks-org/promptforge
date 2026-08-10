@@ -68,6 +68,7 @@ function makeTask(overrides: Partial<TaskSpec> = {}): TaskSpec {
 const baseSnapshot = assembleSnapshot({
   projectId: 'project-test',
   projectName: 'Test Project',
+  repoPath: '/Users/test/project',
   memory: makeMemory(),
   git: makeGit(),
   currentTask: makeTask(),
@@ -86,6 +87,7 @@ describe('assembleSnapshot', () => {
       assembleSnapshot({
         projectId: 'project-other',
         projectName: 'X',
+        repoPath: '/Users/test/project',
         memory: makeMemory({ projectId: 'project-test' }),
         git: makeGit(),
         currentTask: null,
@@ -98,6 +100,7 @@ describe('assembleSnapshot', () => {
       assembleSnapshot({
         projectId: 'project-test',
         projectName: 'X',
+        repoPath: '/Users/test/project',
         memory: makeMemory(),
         git: makeGit(),
         currentTask: makeTask({ project_id: 'project-other' }),
@@ -109,6 +112,7 @@ describe('assembleSnapshot', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'X',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ currentTaskId: null }),
       git: makeGit(),
       currentTask: null,
@@ -121,6 +125,7 @@ describe('assembleSnapshot', () => {
       assembleSnapshot({
         projectId: 'project-test',
         projectName: 'X',
+        repoPath: '/Users/test/project',
         memory: makeMemory({ currentTaskId: 'TASK-2026-9999' }),
         git: makeGit(),
         currentTask: makeTask({ task_id: 'TASK-2026-0001' }),
@@ -183,6 +188,7 @@ describe('classifyProgress', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'X',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ currentTaskId: null }),
       git: makeGit(),
       currentTask: null,
@@ -253,6 +259,39 @@ describe('handoff renderers — preservation', () => {
     expect(qwen).toContain('Use SQLite for storage');
     expect(codex).toContain('Use SQLite for storage');
   });
+
+  it('renders the canonical repository path and separates handoff target from original execution', () => {
+    const out = renderHandoffCodex(baseSnapshot);
+    expect(out).toContain('Repository: `/Users/test/project`');
+    expect(out).toContain('## Original task execution');
+    expect(out).toContain('## Current handoff target\nCodex');
+    expect(out).not.toContain('## Execution');
+  });
+
+  it('reframes inferred scope and acceptance as verification evidence', () => {
+    const out = renderHandoffCodex(baseSnapshot);
+    expect(out).toContain('Original task items to reconcile against current repository state');
+    expect(out).toContain('### Acceptance requiring verification');
+    expect(out).not.toContain('## Remaining');
+    expect(out).not.toContain('Acceptance (remaining)');
+  });
+
+  it('filters generated paths from handoff work evidence', () => {
+    const snap = assembleSnapshot({
+      ...baseSnapshot,
+      git: makeGit({
+        uncommitted: {
+          staged: ['build/generated.js', 'src/App.tsx'],
+          unstaged: [],
+          untracked: [],
+          diffStat: ' build/generated.js | 1 +\n src/App.tsx | 1 +',
+        },
+      }),
+    });
+    const out = renderHandoffCodex(snap);
+    expect(out).toContain('src/App.tsx');
+    expect(out).not.toContain('build/generated.js');
+  });
 });
 
 describe('handoff renderers — recovery section', () => {
@@ -298,6 +337,7 @@ describe('staleness reconciliation', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'Test',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ baseCommit: 'aaa111' }),
       git: makeGit({ head: { hash: 'bbb222', subject: 'newer', committedAt: '2026-08-10T00:00:00Z' } }),
       currentTask: makeTask(),
@@ -310,6 +350,7 @@ describe('staleness reconciliation', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'Test',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ baseCommit: 'abc123' }),
       git: makeGit({ head: { hash: 'abc123', subject: 'same', committedAt: '2026-08-07T00:00:00Z' } }),
       currentTask: makeTask(),
@@ -322,6 +363,7 @@ describe('staleness reconciliation', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'Test',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ baseCommit: null }),
       git: makeGit(),
       currentTask: makeTask(),
@@ -336,6 +378,7 @@ describe('WHY gap — missing rationale', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'Test',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ decisions: [] }),
       git: makeGit(),
       currentTask: null,
@@ -348,6 +391,7 @@ describe('WHY gap — missing rationale', () => {
     const snap = assembleSnapshot({
       projectId: 'project-test',
       projectName: 'Test',
+      repoPath: '/Users/test/project',
       memory: makeMemory({ decisions: [{ text: 'Use SQLite', at: '2026-08-07T00:00:00Z' }] }),
       git: makeGit(),
       currentTask: null,
@@ -369,6 +413,7 @@ describe('handoff renderers — arbitrary-project generality', () => {
       const snap = assembleSnapshot({
         projectId: `project-${proj.name.toLowerCase().replace(/\s+/g, '-')}`,
         projectName: proj.name,
+        repoPath: `/Users/test/${proj.name.toLowerCase().replace(/\s+/g, '-')}`,
         memory: makeMemory({
           projectId: `project-${proj.name.toLowerCase().replace(/\s+/g, '-')}`,
           stack: proj.stack,

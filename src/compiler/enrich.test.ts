@@ -107,6 +107,19 @@ describe('enrich', () => {
     expect(ts.confidence).toBe(0.9);
   });
 
+  it('normalizes inverted destructive database safety wording', () => {
+    const ts = enrich({
+      compilerOutput: {
+        ...validCO,
+        stop_conditions: ['Any destructive database changes are required without approval'],
+      },
+      projectId: 'p1',
+    });
+    expect(ts.stop_conditions).toEqual([
+      'Do not make destructive database changes without explicit approval.',
+    ]);
+  });
+
   it('is deterministic — same input → same output', () => {
     resetTaskCounterForTests(99);
     const a = enrich({ compilerOutput: validCO, projectId: 'p1' });

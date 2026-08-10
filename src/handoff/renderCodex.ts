@@ -1,6 +1,6 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
-import { renderHandoffMetadata } from './metadata';
+import { filterHandoffDiffStat, filterHandoffPaths, renderHandoffMetadata } from './metadata';
 
 export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
   const progress = classifyProgress(snapshot);
@@ -17,15 +17,20 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
     if (snapshot.git.head) {
       sections.push(`Current HEAD: \`${snapshot.git.head.hash.slice(0, 8)}\` — ${snapshot.git.head.subject}`);
     }
-    const changed = snapshot.git.uncommitted.staged.length + snapshot.git.uncommitted.unstaged.length;
+    const changedPaths = filterHandoffPaths([
+      ...snapshot.git.uncommitted.staged,
+      ...snapshot.git.uncommitted.unstaged,
+    ]);
+    const changed = changedPaths.length;
     if (changed > 0) {
       sections.push(`${changed} file(s) modified in working tree:`);
-      for (const f of [...snapshot.git.uncommitted.staged, ...snapshot.git.uncommitted.unstaged]) {
+      for (const f of changedPaths) {
         sections.push(`- ${f}`);
       }
     }
-    if (snapshot.git.uncommitted.diffStat) {
-      sections.push(snapshot.git.uncommitted.diffStat);
+    const diffStat = filterHandoffDiffStat(snapshot.git.uncommitted.diffStat);
+    if (diffStat) {
+      sections.push(diffStat);
     }
     sections.push('');
   } else {
@@ -59,7 +64,7 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
     }
 
     if (t.acceptance_criteria.length > 0) {
-      sections.push('### Acceptance (remaining)');
+      sections.push('### Acceptance requiring verification');
       for (const ac of t.acceptance_criteria) sections.push(`- ${ac}`);
       sections.push('');
     }
@@ -87,7 +92,7 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
     }
   }
 
-  sections.push(renderHandoffMetadata(snapshot, progress));
+  sections.push(renderHandoffMetadata(snapshot, progress, 'Codex'));
   sections.push('');
 
   // Decisions.
@@ -107,7 +112,7 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
   }
 
   if (progress.remaining.length > 0) {
-    sections.push('## Remaining');
+    sections.push('## Original task items to reconcile against current repository state');
     for (const r of progress.remaining) sections.push(`- ${r.item}`);
     sections.push('');
   }

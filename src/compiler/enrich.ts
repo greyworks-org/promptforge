@@ -33,6 +33,13 @@ export interface EnrichInput {
   projectId: string;
 }
 
+function normalizeStopCondition(condition: string): string {
+  if (/^Any destructive database changes are required without approval\.?$/i.test(condition.trim())) {
+    return 'Do not make destructive database changes without explicit approval.';
+  }
+  return condition;
+}
+
 /**
  * Enrich a validated CompilerOutput into a canonical TaskSpec.
  * This is deterministic: same input → same output.
@@ -65,7 +72,7 @@ export function enrich(input: EnrichInput): TaskSpec {
     edge_cases: co.edge_cases ?? [],
     execution_plan: co.execution_plan ?? [],
     test_plan: co.test_plan ?? [],
-    stop_conditions: co.stop_conditions ?? [],
+    stop_conditions: (co.stop_conditions ?? []).map(normalizeStopCondition),
     final_report: co.final_report ?? [],
     confidence: co.confidence,
     estimated_prompt_tokens: estimateTokens(JSON.stringify(co)),
