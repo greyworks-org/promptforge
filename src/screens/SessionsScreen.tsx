@@ -295,6 +295,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 <div>
                   <p className="text-sm font-semibold">{selected.state.objective || 'Recovered task session'}</p>
                   <p className="mt-1 text-xs text-zinc-500">{selected.status} · model {selected.binding.modelId ?? 'runtime default'} · started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="mt-1 text-xs text-zinc-500">Runtime cwd: <code className="font-mono text-zinc-700">{selected.runtimeCwd ?? 'not bound'}</code></p>
                 </div>
                 <div className="flex gap-1">
                   {runtimes.map((runtime) => (
@@ -330,8 +331,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
                 <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Open VS Code</button>
-                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
-                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selected.runtimeCwd === null} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selected.runtimeCwd === null} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
                 <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
               </div>

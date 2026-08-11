@@ -12,7 +12,12 @@ import { getCompilation } from '../services/historyService';
 import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
 import { getProject, listProjects } from '../services/projectsService';
-import { detectRuntime, launchRuntimeProcess, type RuntimeAvailability } from '../services/runtimeService';
+import {
+  detectRuntime,
+  launchRuntimeProcess,
+  validateRuntimeProject,
+  type RuntimeAvailability,
+} from '../services/runtimeService';
 import type { OpenCodeModel } from '../services/opencodeModels';
 import { adapterFor } from './adapters';
 import {
@@ -76,6 +81,8 @@ export interface StartSessionInput {
 }
 
 export async function startExecutionSession(input: StartSessionInput): Promise<ExecutionSession> {
+  const project = await getProject(input.projectId);
+  if (project === null) throw new Error('The registered project could not be found.');
   const memory = input.memory ?? await getMemory(input.projectId);
   const git = input.git ?? await getGitSnapshot(input.projectId, memory.baseCommit ?? undefined);
   const session = await (await repo()).create({
@@ -84,6 +91,7 @@ export async function startExecutionSession(input: StartSessionInput): Promise<E
     compilationId: input.compilation?.id ?? null,
     taskId: input.task?.task_id ?? null,
     runtime: runtimeSchema.parse(input.runtime),
+    runtimeCwd: project.repoPath,
     binding: input.binding ?? initialBinding(input.task),
     state: initialState(input.task, memory),
     baseCommit: memory.baseCommit ?? git.head?.hash ?? null,
@@ -296,9 +304,19 @@ export async function launchExecutionSessionThroughOpenCode(
     throw new Error(availability.error ?? 'OpenCode is not installed.');
   }
   try {
+    const project = await getProject(projectId);
+    if (project === null) throw new Error('The registered project could not be found.');
+    if (session.runtimeCwd !== null && session.runtimeCwd !== project.repoPath) {
+      throw new Error(`OpenCode launch blocked: session cwd ${session.runtimeCwd} differs from registered project root ${project.repoPath}.`);
+    }
+    const projectRoot = await validateRuntimeProject(projectId, session.runtimeCwd);
+    if (session.runtimeCwd === null) {
+      session = await (await repo()).update(projectId, sessionId, { runtimeCwd: projectRoot }) ?? session;
+    }
     const launchResult = await launchRuntimeProcess({
       runtime: 'opencode',
       projectId,
+      projectRoot,
       resume: mode === 'resume',
       externalSessionId: session.binding.runtimeSessionId,
       modelRef: session.binding.modelRef,
@@ -342,6 +360,14 @@ export async function reconcileProjectSessions(projectId: string): Promise<Execu
   if (project === null) throw new Error('The registered project could not be found.');
   const memory = await getMemory(projectId);
   let sessions = await listExecutionSessions(projectId);
+  const sessionsRepo = await repo();
+
+  for (const session of sessions) {
+    if (session.runtimeCwd === null) {
+      await sessionsRepo.update(projectId, session.id, { runtimeCwd: project.repoPath });
+    }
+  }
+  sessions = await listExecutionSessions(projectId);
 
   // A task compiled before this feature existed is recoverable without a model call.
   if (memory.currentTaskId && !sessions.some((session) => session.compilationId === memory.currentTaskId)) {
@@ -352,7 +378,6 @@ export async function reconcileProjectSessions(projectId: string): Promise<Execu
       const recovered = await startExecutionSession({
         projectId, runtime: runtimeSchema.parse(task.agent_runtime), task, compilation, memory, git,
       });
-      const sessionsRepo = await repo();
       await sessionsRepo.update(projectId, recovered.id, { status: 'external', recoveryReason: 'Recovered from persisted project memory after restart.' });
       await appendSessionEvent(projectId, recovered.id, 'external_recovery', 'Recovered from persisted TaskSpec and project memory; no external transcript was available.', recovered.runtime);
       sessions = await listExecutionSessions(projectId);
@@ -365,7 +390,6 @@ export async function reconcileProjectSessions(projectId: string): Promise<Execu
       || git.uncommitted.staged.length > 0
       || git.uncommitted.unstaged.length > 0
       || git.uncommitted.untracked.length > 0;
-    const sessionsRepo = await repo();
     const status = changed && hasRepositoryEvidence(git) ? 'interrupted' : 'reconciled';
     await sessionsRepo.update(projectId, session.id, {
       status,

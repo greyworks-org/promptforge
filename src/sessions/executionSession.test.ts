@@ -5,6 +5,7 @@ import { runMigrations } from '../db/migrate';
 import type { QueryRunner } from '../db/runner';
 import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
+import { setDbForTests as setProjectDb } from '../services/projectsService';
 import {
   appendSessionEvent,
   deriveExecutionSessionControls,
@@ -79,12 +80,19 @@ beforeEach(async () => {
     `INSERT INTO projects (id, name, repo_path, settings_json, created_at, updated_at) VALUES (?,?,?,'{}',?,?)`,
     ['project-session', 'Session project', '/tmp/session-project', 'now', 'now'],
   );
+  await runner.execute(
+    `INSERT INTO projects (id, name, repo_path, settings_json, created_at, updated_at) VALUES (?,?,?,'{}',?,?)`,
+    ['project-other', 'Other project', '/tmp/other-project', 'now', 'now'],
+  );
   setDbForTests(runner);
+  setProjectDb(runner);
+  vi.spyOn(runtimeService, 'validateRuntimeProject').mockResolvedValue('/tmp/session-project');
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
   setDbForTests(null);
+  setProjectDb(null);
   await runner.close();
 });
 
@@ -191,11 +199,65 @@ describe('execution session continuity', () => {
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
       runtime: 'opencode',
+      projectRoot: '/tmp/session-project',
       resume: true,
       externalSessionId: null,
       modelRef: 'openrouter/deepseek/deepseek-v4-pro',
       continuationPrompt: null,
     }));
+  });
+
+  it('binds separate projects to separate persisted OpenCode cwd values', async () => {
+    const first = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    const second = await startExecutionSession({
+      projectId: 'project-other', runtime: 'opencode', task,
+      memory: { ...memory, projectId: 'project-other' }, git,
+    });
+    expect(first.runtimeCwd).toBe('/tmp/session-project');
+    expect(second.runtimeCwd).toBe('/tmp/other-project');
+    expect((await getExecutionSession('project-session', first.id))?.runtimeCwd).toBe('/tmp/session-project');
+    expect((await getExecutionSession('project-other', second.id))?.runtimeCwd).toBe('/tmp/other-project');
+
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode', binary: 'opencode', installed: true, canLaunch: true,
+      supportsResume: true, supportsModelRouting: true, version: '1.15.10',
+      capabilities: ['model-routing'], error: null,
+    });
+    vi.spyOn(runtimeService, 'validateRuntimeProject').mockImplementation(async (projectId, boundRoot) => {
+      const expected = projectId === 'project-session' ? '/tmp/session-project' : '/tmp/other-project';
+      expect(boundRoot).toBe(expected);
+      return expected;
+    });
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue({
+      started: true, pid: 1234, exitCode: null, stderr: null,
+    });
+
+    await launchExecutionSessionThroughOpenCode('project-session', first.id, 'start');
+    await launchExecutionSessionThroughOpenCode('project-other', second.id, 'start');
+
+    expect(launch.mock.calls.map(([input]) => input.projectRoot)).toEqual([
+      '/tmp/session-project',
+      '/tmp/other-project',
+    ]);
+  });
+
+  it('blocks a session cwd mismatch before OpenCode execution', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    await runner.execute('UPDATE execution_sessions SET runtime_cwd = ? WHERE id = ?', ['/Users/utku/Desktop/PromptForge', created.id]);
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode', binary: 'opencode', installed: true, canLaunch: true,
+      supportsResume: true, supportsModelRouting: true, version: '1.15.10',
+      capabilities: [], error: null,
+    });
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess');
+
+    await expect(launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume'))
+      .rejects.toThrow('/Users/utku/Desktop/PromptForge differs from registered project root /tmp/session-project');
+    expect(launch).not.toHaveBeenCalled();
   });
 
   it('persists a new instruction and composes it after canonical context', async () => {

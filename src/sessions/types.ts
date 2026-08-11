@@ -64,6 +64,7 @@ export interface ExecutionSession {
   binding: RuntimeBinding;
   userInstruction: string;
   status: SessionStatus;
+  runtimeCwd: string | null;
   state: CanonicalSessionState;
   baseCommit: string | null;
   lastKnownHead: string | null;

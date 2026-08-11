@@ -7,6 +7,7 @@ import executionSessionsSql from './migrations/0006_execution_sessions.sql?raw';
 import runtimeMetadataSql from './migrations/0007_runtime_metadata.sql?raw';
 import executionHandoffsSql from './migrations/0008_execution_handoffs.sql?raw';
 import sessionControlPathSql from './migrations/0009_session_control_path.sql?raw';
+import sessionRuntimeCwdSql from './migrations/0010_session_runtime_cwd.sql?raw';
 
 export interface Migration {
   version: number;
@@ -24,6 +25,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 7, name: '0007_runtime_metadata', sql: runtimeMetadataSql },
   { version: 8, name: '0008_execution_handoffs', sql: executionHandoffsSql },
   { version: 9, name: '0009_session_control_path', sql: sessionControlPathSql },
+  { version: 10, name: '0010_session_runtime_cwd', sql: sessionRuntimeCwdSql },
 ];
 
 export interface MigrationReport {

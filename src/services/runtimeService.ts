@@ -1,4 +1,5 @@
 import { invokeIpc } from '../ipc';
+import { getProject } from './projectsService';
 import { resolveProjectRoot } from './projectFs';
 import type { SessionRuntime } from '../sessions/types';
 
@@ -23,6 +24,7 @@ export async function detectRuntime(runtime: SessionRuntime): Promise<RuntimeAva
 export interface LaunchRuntimeInput {
   runtime: SessionRuntime;
   projectId: string;
+  projectRoot: string;
   resume: boolean;
   externalSessionId: string | null;
   modelRef: string | null;
@@ -36,12 +38,40 @@ export interface RuntimeLaunchResult {
   stderr: string | null;
 }
 
-/** Launches a fixed runtime binary in the registered project root. Continuation text is optional and explicit. */
+interface GitValidationResult {
+  isRepo: boolean;
+}
+
+/** Resolve and validate the exact registered root before any runtime launch. */
+export async function validateRuntimeProject(projectId: string, boundRoot: string | null): Promise<string> {
+  const project = await getProject(projectId);
+  if (project === null) throw new Error('The registered project could not be found.');
+
+  if (boundRoot !== null && boundRoot !== project.repoPath) {
+    throw new Error(`OpenCode launch blocked: session cwd ${boundRoot} differs from registered project root ${project.repoPath}.`);
+  }
+
+  const resolvedRoot = await resolveProjectRoot(projectId);
+  if (resolvedRoot !== project.repoPath) {
+    throw new Error(`OpenCode launch blocked: resolved project root ${resolvedRoot} differs from registered project root ${project.repoPath}.`);
+  }
+
+  const git = await invokeIpc<GitValidationResult>('git_inspect', {
+    repoPath: resolvedRoot,
+    baseCommit: null,
+  });
+  if (!git.isRepo) {
+    throw new Error(`OpenCode launch blocked: registered project root is not a Git repository: ${resolvedRoot}.`);
+  }
+  return resolvedRoot;
+}
+
+/** Launches a fixed runtime in the explicitly validated project root. Continuation text is optional and explicit. */
 export async function launchRuntimeProcess(input: LaunchRuntimeInput): Promise<RuntimeLaunchResult> {
-  const projectRoot = await resolveProjectRoot(input.projectId);
   return invokeIpc<RuntimeLaunchResult>('launch_runtime', {
     runtime: input.runtime,
-    projectRoot,
+    projectId: input.projectId,
+    projectRoot: input.projectRoot,
     resume: input.resume,
     externalSessionId: input.externalSessionId,
     modelRef: input.modelRef,

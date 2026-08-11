@@ -348,6 +348,18 @@ fn valid_session_id(value: &str) -> bool {
         && value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
 }
 
+fn is_git_repository(root: &Path) -> bool {
+    if !root.join(".git").exists() {
+        return false;
+    }
+    Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(root)
+        .output()
+        .map(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true")
+        .unwrap_or(false)
+}
+
 fn runtime_args(
     runtime: &str,
     resume: bool,
@@ -386,7 +398,37 @@ fn runtime_args(
 /// optional explicit bounded continuation prompt.
 #[tauri::command]
 pub fn launch_runtime(
+    app: tauri::AppHandle,
     runtime: String,
+    project_id: String,
+    project_root: String,
+    resume: bool,
+    external_session_id: Option<String>,
+    model_ref: Option<String>,
+    continuation_prompt: Option<String>,
+) -> Result<RuntimeLaunchResult, String> {
+    let registered_root = crate::commands::fs::resolve_project_root(&app, &project_id)?;
+    let registered_root_text = registered_root.to_string_lossy().into_owned();
+    if registered_root_text != project_root {
+        return Err(format!(
+            "OpenCode launch blocked: supplied cwd {} differs from registered project root {}.",
+            project_root, registered_root_text
+        ));
+    }
+    launch_runtime_at_root(
+        runtime,
+        project_id,
+        registered_root_text,
+        resume,
+        external_session_id,
+        model_ref,
+        continuation_prompt,
+    )
+}
+
+fn launch_runtime_at_root(
+    runtime: String,
+    project_id: String,
     project_root: String,
     resume: bool,
     external_session_id: Option<String>,
@@ -397,6 +439,13 @@ pub fn launch_runtime(
     if !cwd.is_dir() {
         return Err(format!("Not a directory: {}", project_root));
     }
+    let args = runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?;
+    if runtime == "opencode" && !is_git_repository(&cwd) {
+        return Err(format!("OpenCode launch requires a Git repository: {}", project_root));
+    }
+    if project_id.is_empty() {
+        return Err("OpenCode launch requires a registered project id.".into());
+    }
     let binary = runtime_binary(&runtime).ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let path_env = env::var_os("PATH");
     let home = env::var_os("HOME");
@@ -404,7 +453,7 @@ pub fn launch_runtime(
         .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let mut command = Command::new(executable);
     command.current_dir(&cwd);
-    command.args(runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?);
+    command.args(args);
 
     let mut child = command
         .stderr(Stdio::piped())
@@ -633,8 +682,9 @@ mod tests {
 
     #[test]
     fn launch_runtime_rejects_unsafe_opencode_session_id() {
-        let err = launch_runtime(
+        let err = launch_runtime_at_root(
             "opencode".into(),
+            "project-test".into(),
             "/tmp".into(),
             true,
             Some("session; rm -rf /".into()),
@@ -646,8 +696,9 @@ mod tests {
 
     #[test]
     fn launch_runtime_rejects_unsafe_opencode_model_reference() {
-        let err = launch_runtime(
+        let err = launch_runtime_at_root(
             "opencode".into(),
+            "project-test".into(),
             "/tmp".into(),
             false,
             None,

@@ -22,6 +22,7 @@ const sessionRowSchema = z.object({
   task_id: z.string().nullable(),
   runtime: runtimeSchema,
   status: sessionStatusSchema,
+  runtime_cwd: z.string().nullable(),
   runtime_metadata_json: z.string().default('{}'),
   user_instruction: z.string().default(''),
   state_json: z.string(),
@@ -71,6 +72,7 @@ function toSession(row: unknown): ExecutionSession {
     taskId: parsed.task_id,
     runtime: parsed.runtime,
     status: parsed.status,
+    runtimeCwd: parsed.runtime_cwd,
     binding: parseBinding(parsed.runtime_metadata_json),
     userInstruction: parsed.user_instruction,
     state: parseState(parsed.state_json),
@@ -98,7 +100,7 @@ function toEvent(row: unknown): SessionEvent {
 }
 
 const SESSION_SELECT = `SELECT id, project_id, compilation_id, task_id, runtime, status,
-  runtime_metadata_json, user_instruction, state_json, base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at
+  runtime_cwd, runtime_metadata_json, user_instruction, state_json, base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at
 FROM execution_sessions`;
 
 const EVENT_SELECT = `SELECT id, session_id, project_id, kind, runtime, content,
@@ -110,6 +112,7 @@ export interface NewExecutionSession {
   compilationId?: string | null;
   taskId?: string | null;
   runtime: SessionRuntime;
+  runtimeCwd?: string | null;
   binding?: RuntimeBinding;
   userInstruction?: string;
   status?: SessionStatus;
@@ -120,6 +123,7 @@ export interface NewExecutionSession {
 
 export interface SessionPatch {
   runtime?: SessionRuntime;
+  runtimeCwd?: string | null;
   binding?: RuntimeBinding;
   userInstruction?: string;
   status?: SessionStatus;
@@ -161,12 +165,12 @@ export function createExecutionSessionsRepository(runner: QueryRunner): Executio
       const now = new Date().toISOString();
       await runner.execute(
         `INSERT INTO execution_sessions
-          (id, project_id, compilation_id, task_id, runtime, status, runtime_metadata_json, user_instruction, state_json,
+          (id, project_id, compilation_id, task_id, runtime, status, runtime_cwd, runtime_metadata_json, user_instruction, state_json,
            base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
         [
           input.id, input.projectId, input.compilationId ?? null, input.taskId ?? null,
-          input.runtime, input.status ?? 'active', JSON.stringify(input.binding ?? {
+          input.runtime, input.status ?? 'active', input.runtimeCwd ?? null, JSON.stringify(input.binding ?? {
             providerId: null, modelId: null, modelRef: null, variant: null,
             runtimeSessionId: null, detectedVersion: null, capabilities: [],
           }), input.userInstruction ?? '', JSON.stringify(input.state),
@@ -193,6 +197,7 @@ export function createExecutionSessionsRepository(runner: QueryRunner): Executio
       const sets: string[] = [];
       const params: SqlParam[] = [];
       if (patch.runtime !== undefined) { sets.push('runtime = ?'); params.push(patch.runtime); }
+      if (patch.runtimeCwd !== undefined) { sets.push('runtime_cwd = ?'); params.push(patch.runtimeCwd); }
       if (patch.status !== undefined) { sets.push('status = ?'); params.push(patch.status); }
       if (patch.binding !== undefined) { sets.push('runtime_metadata_json = ?'); params.push(JSON.stringify(patch.binding)); }
       if (patch.userInstruction !== undefined) { sets.push('user_instruction = ?'); params.push(patch.userInstruction); }
