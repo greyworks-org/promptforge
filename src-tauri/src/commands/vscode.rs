@@ -19,6 +19,7 @@ struct BridgeStore {
     token: String,
     port: u16,
     views: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    handoff_views: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     actions: Arc<Mutex<VecDeque<SessionAction>>>,
     results: Arc<Mutex<HashMap<String, SessionActionResult>>>,
     next_action_id: Arc<AtomicU64>,
@@ -43,6 +44,14 @@ pub struct PublishSessionView {
     pub view: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishHandoffView {
+    pub project_id: String,
+    pub session_id: String,
+    pub view: Value,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionAction {
@@ -51,6 +60,7 @@ pub struct SessionAction {
     pub session_id: String,
     pub action: String,
     pub note: Option<String>,
+    pub payload: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,6 +77,7 @@ struct SessionActionRequest {
     session_id: String,
     action: String,
     note: Option<String>,
+    payload: Option<Value>,
 }
 
 impl ReadModelBridge {
@@ -81,6 +92,7 @@ impl ReadModelBridge {
             token: make_token(),
             port,
             views: Arc::new(Mutex::new(HashMap::new())),
+            handoff_views: Arc::new(Mutex::new(HashMap::new())),
             actions: Arc::new(Mutex::new(VecDeque::new())),
             results: Arc::new(Mutex::new(HashMap::new())),
             next_action_id: Arc::new(AtomicU64::new(1)),
@@ -117,7 +129,7 @@ impl ReadModelBridge {
     fn queue_action(&self, input: SessionActionRequest) -> Result<SessionAction, String> {
         validate_id(&input.project_id, "project id")?;
         validate_id(&input.session_id, "session id")?;
-        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint") {
+        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint" | "handoff-context" | "handoff-preview" | "handoff-confirm") {
             return Err("Unsupported VS Code session action.".into());
         }
         if input.note.as_ref().is_some_and(|note| note.len() > 4000) {
@@ -137,6 +149,7 @@ impl ReadModelBridge {
             session_id: input.session_id,
             action: input.action,
             note: input.note,
+            payload: input.payload,
         };
         self.store
             .actions
@@ -152,6 +165,20 @@ impl ReadModelBridge {
             .lock()
             .map_err(|_| "The VS Code action bridge is unavailable.".to_string())
             .map(|mut actions| actions.pop_front())
+    }
+
+    fn publish_handoff(&self, input: PublishHandoffView) -> Result<(), String> {
+        validate_id(&input.project_id, "project id")?;
+        validate_id(&input.session_id, "session id")?;
+        let bytes = serde_json::to_vec(&input.view)
+            .map_err(|error| format!("Could not serialize the VS Code handoff view: {}", error))?;
+        let key = format!("{}:{}", input.project_id, input.session_id);
+        self.store
+            .handoff_views
+            .lock()
+            .map_err(|_| "The VS Code handoff bridge is unavailable.".to_string())?
+            .insert(key, bytes);
+        Ok(())
     }
 
     fn complete_action(
@@ -202,6 +229,16 @@ pub fn vscode_publish_session_view(
         session_id,
         view,
     })
+}
+
+#[tauri::command]
+pub fn vscode_publish_handoff_view(
+    state: State<'_, crate::AppState>,
+    project_id: String,
+    session_id: String,
+    view: Value,
+) -> Result<(), String> {
+    state.vscode_bridge.publish_handoff(PublishHandoffView { project_id, session_id, view })
 }
 
 #[tauri::command]
@@ -345,6 +382,19 @@ fn handle_connection(mut stream: TcpStream, store: &BridgeStore) {
             }
             return;
         }
+        if let Some((project_id, session_id)) = parse_handoff_path(path) {
+            let key = format!("{}:{}", project_id, session_id);
+            let body = store
+                .handoff_views
+                .lock()
+                .ok()
+                .and_then(|views| views.get(&key).cloned());
+            match body {
+                Some(body) => write_response(&mut stream, 200, "OK", &body),
+                None => write_response(&mut stream, 404, "Not Found", b"{}"),
+            }
+            return;
+        }
     }
     write_response(&mut stream, 404, "Not Found", b"{}");
 }
@@ -373,6 +423,16 @@ fn parse_action_path(path: &str) -> Option<&str> {
     }
     validate_id(parts[3], "action id").ok()?;
     Some(parts[3])
+}
+
+fn parse_handoff_path(path: &str) -> Option<(&str, &str)> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() != 5 || parts[1] != "v1" || parts[2] != "handoff-views" {
+        return None;
+    }
+    validate_id(parts[3], "project id").ok()?;
+    validate_id(parts[4], "session id").ok()?;
+    Some((parts[3], parts[4]))
 }
 
 fn write_json_response<T: Serialize>(stream: &mut TcpStream, status: u16, reason: &str, body: &T) {
@@ -410,6 +470,7 @@ mod tests {
                 token: "test-token".into(),
                 port: 0,
                 views: Arc::new(Mutex::new(HashMap::new())),
+                handoff_views: Arc::new(Mutex::new(HashMap::new())),
                 actions: Arc::new(Mutex::new(VecDeque::new())),
                 results: Arc::new(Mutex::new(HashMap::new())),
                 next_action_id: Arc::new(AtomicU64::new(1)),
@@ -441,6 +502,7 @@ mod tests {
                 session_id: "session-1".into(),
                 action: "checkpoint".into(),
                 note: Some("Validated the current state.".into()),
+                payload: None,
             })
             .expect("action queues");
         assert_eq!(action.id, "action-1");
@@ -457,6 +519,7 @@ mod tests {
                 session_id: "session-1".into(),
                 action: "launch-shell".into(),
                 note: None,
+                payload: None,
             })
             .is_err());
     }
@@ -483,6 +546,7 @@ mod tests {
                 token: "test-token".into(),
                 port: 0,
                 views: Arc::new(Mutex::new(HashMap::new())),
+                handoff_views: Arc::new(Mutex::new(HashMap::new())),
                 actions: Arc::new(Mutex::new(VecDeque::new())),
                 results: Arc::new(Mutex::new(HashMap::new())),
                 next_action_id: Arc::new(AtomicU64::new(1)),

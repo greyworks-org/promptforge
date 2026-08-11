@@ -19,7 +19,12 @@ import {
 import { emptyRuntimeBinding, type ExecutionSession } from '../sessions/types';
 import type { QueryRunner } from '../db/runner';
 import type { TaskSpec } from '../schemas/taskspec';
-import { handoffToOpenCode, setDbForTests as setHandoffDb } from './crossModelService';
+import {
+  confirmHandoffPreview,
+  handoffToOpenCode,
+  prepareHandoffPreview,
+  setDbForTests as setHandoffDb,
+} from './crossModelService';
 
 const mockInvoke = vi.mocked(invokeIpc);
 const projectId = 'project-cross-model';
@@ -147,6 +152,9 @@ beforeEach(async () => {
       supportsResume: true, supportsModelRouting: true, version: '1.15.10',
       capabilities: ['model-routing'], error: null,
     };
+    if (command === 'opencode_models') return {
+      runtime: 'opencode', models: [targetModel], source: 'opencode-cli', warning: null,
+    };
     if (command === 'launch_runtime') return undefined;
     throw new Error(`Unexpected IPC command: ${command}`);
   });
@@ -164,6 +172,27 @@ afterEach(async () => {
 });
 
 describe('explicit cross-model handoff', () => {
+  it('previews bounded evidence without launching, then confirms once with the same package', async () => {
+    const sourceBefore = await getExecutionSession(projectId, source.id);
+    const preview = await prepareHandoffPreview({ projectId, sourceSessionId: source.id, targetModel });
+
+    expect(preview.continuation.targetExecution.modelRef).toBe(targetModel.modelRef);
+    expect(await import('../sessions/executionSessionService').then((sessions) => sessions.listExecutionSessions(projectId))).toHaveLength(1);
+    expect(mockInvoke.mock.calls.some(([command]) => command === 'launch_runtime')).toBe(false);
+
+    const result = await confirmHandoffPreview(preview.previewId);
+
+    expect(result.continuation).toEqual(preview.continuation);
+    expect(result.targetSession.id).toBe(preview.continuation.targetExecution.sessionId);
+    expect(result.handoff.status).toBe('launched');
+    expect(await getExecutionSession(projectId, source.id)).toEqual(sourceBefore);
+    expect(mockInvoke.mock.calls.filter(([command]) => command === 'launch_runtime')).toHaveLength(1);
+    expect(mockInvoke.mock.calls.find(([command]) => command === 'launch_runtime')?.[1]).toMatchObject({
+      continuationPrompt: preview.continuation.rendered,
+      modelRef: targetModel.modelRef,
+    });
+  });
+
   it('creates one new target, persists lineage, and launches bounded evidence', async () => {
     const sourceBefore = await getExecutionSession(projectId, source.id);
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM execution_handoffs').get()).toMatchObject({ count: 0 });

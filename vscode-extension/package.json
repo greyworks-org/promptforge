@@ -9,7 +9,7 @@
     "vscode": "^1.96.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onView:promptforge.sessionStatus", "onCommand:promptforge.connect"],
+  "activationEvents": ["onView:promptforge.sessionStatus", "onCommand:promptforge.connect", "onCommand:promptforge.handoff"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -32,6 +32,10 @@
       {
         "command": "promptforge.addCheckpointNote",
         "title": "PromptForge: Add Checkpoint Note"
+      },
+      {
+        "command": "promptforge.handoff",
+        "title": "PromptForge: Handoff"
       }
     ],
     "configuration": {

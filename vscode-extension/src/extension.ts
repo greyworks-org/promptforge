@@ -8,6 +8,7 @@ import {
   type SessionView,
   type VscodeConnection,
 } from './readModelClient';
+import { HandoffPanel } from './handoffPanel';
 
 class PanelItem extends vscode.TreeItem {
   public readonly children: PanelItem[];
@@ -114,6 +115,7 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
     if (view.controls.canStart) actions.push(new PanelItem('Start Session', 'Confirm to launch OpenCode', [], { command: 'promptforge.startSession', title: 'Start Session' }));
     if (view.controls.canResume) actions.push(new PanelItem('Resume Session', 'Confirm to resume OpenCode', [], { command: 'promptforge.resumeSession', title: 'Resume Session' }));
     if (view.controls.canCheckpoint) actions.push(new PanelItem('Add Checkpoint Note', 'Save to PromptForge', [], { command: 'promptforge.addCheckpointNote', title: 'Add Checkpoint Note' }));
+    actions.push(new PanelItem('Handoff', 'Review and continue with another OpenCode model', [], { command: 'promptforge.handoff', title: 'Handoff' }));
     return [
       ...(this.feedback ? [new PanelItem('Action feedback', this.feedback)] : []),
       ...actions,
@@ -122,6 +124,7 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
       new PanelItem('Model', model),
       new PanelItem('Task', view.task.objective || 'No objective recorded'),
       new PanelItem('Progress', progress),
+      new PanelItem('Context', `${view.context.status}${view.context.checkpoint ? ` · ${view.context.checkpoint}` : ''}`),
       new PanelItem('Changed files', files, view.changedFiles.map((file) => new PanelItem(file))),
       new PanelItem('Recent events', `${view.events.length} recorded`, view.events.slice(-8).reverse().map((event) => new PanelItem(event.kind, event.content))),
     ];
@@ -138,6 +141,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('promptforge.startSession', () => provider.runAction('start')),
     vscode.commands.registerCommand('promptforge.resumeSession', () => provider.runAction('resume')),
     vscode.commands.registerCommand('promptforge.addCheckpointNote', () => provider.runAction('checkpoint')),
+    vscode.commands.registerCommand('promptforge.handoff', () => {
+      const connection = parseConnection(vscode.workspace.getConfiguration().get<string>('promptforge.connection', ''));
+      if (connection) HandoffPanel.open(connection);
+    }),
     vscode.commands.registerCommand('promptforge.connect', async () => {
       const value = await vscode.window.showInputBox({
         prompt: 'Paste the connection copied from PromptForge Local',

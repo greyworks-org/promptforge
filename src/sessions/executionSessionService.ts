@@ -59,6 +59,8 @@ function initialBinding(task: TaskSpec | null): RuntimeBinding {
 
 export interface StartSessionInput {
   projectId: string;
+  /** Optional stable id used by a confirmation-gated handoff preview. */
+  id?: string;
   runtime: SessionRuntime;
   task: TaskSpec | null;
   compilation?: CompilationRecord | null;
@@ -71,7 +73,7 @@ export async function startExecutionSession(input: StartSessionInput): Promise<E
   const memory = input.memory ?? await getMemory(input.projectId);
   const git = input.git ?? await getGitSnapshot(input.projectId, memory.baseCommit ?? undefined);
   const session = await (await repo()).create({
-    id: id('session'),
+    id: input.id ?? id('session'),
     projectId: input.projectId,
     compilationId: input.compilation?.id ?? null,
     taskId: input.task?.task_id ?? null,
@@ -202,6 +204,7 @@ export interface ExecutionSessionView {
   changedFiles: string[];
   task: { id: string | null; objective: string };
   progress: { completed: string[]; pending: string[]; lastAction: string | null };
+  context: { status: 'fresh' | 'stale' | 'unavailable'; checkpoint: string | null };
   completion: 'active' | 'completed' | 'failed' | 'interrupted';
   controls: { canStart: boolean; canResume: boolean; canCheckpoint: boolean };
 }
@@ -222,9 +225,10 @@ export function deriveExecutionSessionControls(session: ExecutionSession, events
 export async function getExecutionSessionView(projectId: string, sessionId: string): Promise<ExecutionSessionView> {
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
-  const [events, git] = await Promise.all([
+  const [events, git, memory] = await Promise.all([
     listSessionEvents(projectId, sessionId),
     getGitSnapshot(projectId, session.baseCommit ?? undefined),
+    getMemory(projectId),
   ]);
   const changedFiles = [...new Set([
     ...git.uncommitted.staged,
@@ -243,6 +247,10 @@ export async function getExecutionSessionView(projectId: string, sessionId: stri
       completed: session.state.completed,
       pending: session.state.pending,
       lastAction: session.state.lastAction,
+    },
+    context: {
+      status: memory.semanticContext === null ? 'unavailable' : memory.semanticContext.status === 'fresh' ? 'fresh' : 'stale',
+      checkpoint: [...events].reverse().find((event) => event.kind === 'checkpoint' || event.kind === 'user_note')?.content ?? null,
     },
     completion,
     controls: deriveExecutionSessionControls(session, events),

@@ -7,7 +7,11 @@ import type { QueryRunner } from '../db/runner';
 import { getCompilation } from '../services/historyService';
 import { getGitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
-import { openCodeModelSchema, type OpenCodeModel } from '../services/opencodeModels';
+import {
+  getOpenCodeModelDiscovery,
+  openCodeModelSchema,
+  type OpenCodeModel,
+} from '../services/opencodeModels';
 import { getProject } from '../services/projectsService';
 import {
   finishExecutionSession,
@@ -27,6 +31,7 @@ import {
 } from './crossModel';
 
 let testRunner: QueryRunner | null = null;
+const pendingPreviews = new Map<string, PreparedHandoffPreview>();
 
 /** Test seam for the handoff repository; production uses the app database. */
 export function setDbForTests(runner: QueryRunner | null): void {
@@ -120,42 +125,54 @@ export interface CrossModelHandoffResult {
   continuation: ContinuationPackage;
 }
 
-/**
- * Performs one explicit source-session → new OpenCode-session handoff.
- * The source is read only. The persisted handoff is prepared before the
- * existing OpenCode launch path is called, then marked launched only after it
- * succeeds.
- */
-export async function handoffToOpenCode(input: CrossModelHandoffInput): Promise<CrossModelHandoffResult> {
+export interface HandoffPreview {
+  previewId: string;
+  projectId: string;
+  sourceSession: ExecutionSession;
+  targetModel: OpenCodeModel;
+  continuation: ContinuationPackage;
+  createdAt: string;
+}
+
+interface PreparedHandoffPreview extends HandoffPreview {
+  sourceLastActiveAt: string;
+}
+
+/** Builds the canonical bounded package without creating or launching a target session. */
+export async function prepareHandoffPreview(input: CrossModelHandoffInput): Promise<HandoffPreview> {
   const targetModel = validateTargetModel(input.targetModel);
   const source = await loadCanonicalSource(input.projectId, input.sourceSessionId);
-  const repository = await handoffs();
-  const existing = await repository.getPreparedBySource(input.projectId, input.sourceSessionId);
+  const existing = await (await handoffs()).getPreparedBySource(input.projectId, input.sourceSessionId);
   if (existing !== null) throw new Error('A prepared handoff already exists for this source session.');
-
-  const targetSession = await startExecutionSession({
-    projectId: input.projectId,
-    runtime: 'opencode',
-    task: source.task,
-    compilation: source.snapshot.currentCompilation,
-    memory: source.snapshot.memory,
-    git: source.snapshot.git,
-    binding: {
-      ...emptyRuntimeBinding(),
-      providerId: targetModel.providerId,
-      modelId: targetModel.modelId,
-      modelRef: targetModel.modelRef,
-    },
-  });
-
+  const previewId = id('session-preview');
   const continuation = buildContinuationPackage({
     snapshot: source.snapshot,
     sourceSession: source.sourceSession,
     sourceEvents: source.sourceEvents,
-    targetSessionId: targetSession.id,
+    targetSessionId: previewId,
     targetModel,
   });
+  const preview: PreparedHandoffPreview = {
+    previewId,
+    projectId: input.projectId,
+    sourceSession: source.sourceSession,
+    targetModel,
+    continuation,
+    createdAt: new Date().toISOString(),
+    sourceLastActiveAt: source.sourceSession.lastActiveAt,
+  };
+  pendingPreviews.set(previewId, preview);
+  return preview;
+}
 
+async function persistAndLaunch(
+  input: CrossModelHandoffInput,
+  source: CanonicalSource,
+  targetModel: OpenCodeModel,
+  targetSession: ExecutionSession,
+  continuation: ContinuationPackage,
+): Promise<CrossModelHandoffResult> {
+  const repository = await handoffs();
   let handoff: HandoffArtifact;
   try {
     handoff = await repository.create({
@@ -188,16 +205,101 @@ export async function handoffToOpenCode(input: CrossModelHandoffInput): Promise<
     );
     const boundTarget = await updateSessionBinding(input.projectId, targetSession.id, {
       ...launched.session.binding,
-      // OpenCode does not expose a session id from its detached TUI launch;
-      // this opaque local binding prevents reuse of the source session.
       runtimeSessionId: id('opencode-binding'),
     });
-    const activatedAt = new Date().toISOString();
-    const activated = await repository.updateStatus(input.projectId, handoff.handoffId, 'launched', activatedAt);
+    const activated = await repository.updateStatus(input.projectId, handoff.handoffId, 'launched', new Date().toISOString());
     if (activated === null) throw new Error('The launched handoff could not be reloaded.');
     return { handoff: activated, sourceSession: source.sourceSession, targetSession: boundTarget, continuation };
   } catch (error) {
     await repository.updateStatus(input.projectId, handoff.handoffId, 'failed', null);
     throw error;
   }
+}
+
+/** Confirms a preview, creates its target session, and invokes the existing OpenCode launch path once. */
+export async function confirmHandoffPreview(previewId: string): Promise<CrossModelHandoffResult> {
+  const preview = pendingPreviews.get(previewId);
+  if (preview === undefined) throw new Error('The handoff preview is no longer available. Open Handoff again.');
+  const source = await loadCanonicalSource(preview.projectId, preview.sourceSession.id);
+  if (source.sourceSession.lastActiveAt !== preview.sourceLastActiveAt) {
+    throw new Error('The source session changed after the preview was prepared. Open Handoff again.');
+  }
+  const discovery = await getOpenCodeModelDiscovery(preview.projectId, preview.targetModel.modelRef);
+  const currentModel = discovery.models.find((model) => model.modelRef === preview.targetModel.modelRef);
+  if (currentModel === undefined || (!currentModel.available && !currentModel.configured)) {
+    throw new Error('The selected OpenCode model is no longer available. Choose another model.');
+  }
+  const existing = await (await handoffs()).getPreparedBySource(preview.projectId, preview.sourceSession.id);
+  if (existing !== null) throw new Error('A prepared handoff already exists for this source session.');
+  const targetSession = await startExecutionSession({
+    id: preview.continuation.targetExecution.sessionId,
+    projectId: preview.projectId,
+    runtime: 'opencode',
+    task: source.task,
+    compilation: source.snapshot.currentCompilation,
+    memory: source.snapshot.memory,
+    git: source.snapshot.git,
+    binding: {
+      ...emptyRuntimeBinding(),
+      providerId: currentModel.providerId,
+      modelId: currentModel.modelId,
+      modelRef: currentModel.modelRef,
+    },
+  });
+  try {
+    const result = await persistAndLaunch(
+      {
+        projectId: preview.projectId,
+        sourceSessionId: preview.sourceSession.id,
+        targetModel: currentModel,
+      },
+      source,
+      currentModel,
+      targetSession,
+      preview.continuation,
+    );
+    pendingPreviews.delete(previewId);
+    return result;
+  } catch (error) {
+    pendingPreviews.delete(previewId);
+    throw error;
+  }
+}
+
+/**
+ * Performs one explicit source-session → new OpenCode-session handoff.
+ * The source is read only. The persisted handoff is prepared before the
+ * existing OpenCode launch path is called, then marked launched only after it
+ * succeeds.
+ */
+export async function handoffToOpenCode(input: CrossModelHandoffInput): Promise<CrossModelHandoffResult> {
+  const targetModel = validateTargetModel(input.targetModel);
+  const source = await loadCanonicalSource(input.projectId, input.sourceSessionId);
+  const existing = await (await handoffs()).getPreparedBySource(input.projectId, input.sourceSessionId);
+  if (existing !== null) throw new Error('A prepared handoff already exists for this source session.');
+
+  const targetSession = await startExecutionSession({
+    projectId: input.projectId,
+    runtime: 'opencode',
+    task: source.task,
+    compilation: source.snapshot.currentCompilation,
+    memory: source.snapshot.memory,
+    git: source.snapshot.git,
+    binding: {
+      ...emptyRuntimeBinding(),
+      providerId: targetModel.providerId,
+      modelId: targetModel.modelId,
+      modelRef: targetModel.modelRef,
+    },
+  });
+
+  const continuation = buildContinuationPackage({
+    snapshot: source.snapshot,
+    sourceSession: source.sourceSession,
+    sourceEvents: source.sourceEvents,
+    targetSessionId: targetSession.id,
+    targetModel,
+  });
+
+  return persistAndLaunch(input, source, targetModel, targetSession, continuation);
 }

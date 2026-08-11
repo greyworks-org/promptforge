@@ -5,6 +5,12 @@ import {
   launchExecutionSessionThroughOpenCode,
   type ExecutionSessionView,
 } from '../sessions/executionSessionService';
+import {
+  confirmHandoffPreview,
+  prepareHandoffPreview,
+  type HandoffPreview,
+} from '../handoff/crossModelService';
+import { openCodeModelSchema, getOpenCodeModelDiscovery, type OpenCodeModel } from './opencodeModels';
 
 interface ReadModelEndpoint {
   baseUrl: string;
@@ -18,7 +24,7 @@ export interface VscodeConnection {
   sessionId: string;
 }
 
-export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint';
+export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
 
 let processingVscodeAction = false;
 
@@ -28,6 +34,18 @@ interface VscodeSessionActionRequest {
   sessionId: string;
   action: VscodeSessionAction;
   note: string | null;
+  payload: unknown;
+}
+
+export interface VscodeHandoffView {
+  source: ExecutionSessionView;
+  models: OpenCodeModel[];
+  discoveryWarning: string | null;
+  preview: HandoffPreview | null;
+  result: {
+    handoff: Awaited<ReturnType<typeof confirmHandoffPreview>>['handoff'];
+    target: ExecutionSessionView;
+  } | null;
 }
 
 export async function getVscodeConnection(projectId: string, sessionId: string): Promise<VscodeConnection> {
@@ -54,6 +72,53 @@ export async function publishVscodeSessionView(
   });
 }
 
+export async function publishVscodeHandoffView(
+  projectId: string,
+  sessionId: string,
+  view: VscodeHandoffView,
+): Promise<void> {
+  await invokeIpc('vscode_publish_handoff_view', { projectId, sessionId, view });
+}
+
+export async function getVscodeHandoffContext(projectId: string, sessionId: string): Promise<VscodeHandoffView> {
+  const source = await getExecutionSessionView(projectId, sessionId);
+  const discovery = await getOpenCodeModelDiscovery(projectId, source.session.binding.modelRef);
+  return {
+    source,
+    models: discovery.models,
+    discoveryWarning: discovery.warning,
+    preview: null,
+    result: null,
+  };
+}
+
+export async function getVscodeHandoffPreview(
+  projectId: string,
+  sessionId: string,
+  targetModel: OpenCodeModel,
+): Promise<VscodeHandoffView> {
+  const preview = await prepareHandoffPreview({ projectId, sourceSessionId: sessionId, targetModel });
+  const context = await getVscodeHandoffContext(projectId, sessionId);
+  return { ...context, preview };
+}
+
+export async function getVscodeHandoffResult(
+  projectId: string,
+  sessionId: string,
+  previewId: string,
+): Promise<VscodeHandoffView> {
+  const result = await confirmHandoffPreview(previewId);
+  const context = await getVscodeHandoffContext(projectId, sessionId);
+  return {
+    ...context,
+    result: {
+      handoff: result.handoff,
+      target: await getExecutionSessionView(projectId, result.targetSession.id),
+    },
+    preview: null,
+  };
+}
+
 /** Claims one explicitly requested action for PromptForge-side execution. */
 export async function processVscodeSessionAction(): Promise<void> {
   if (processingVscodeAction) return;
@@ -63,6 +128,45 @@ export async function processVscodeSessionAction(): Promise<void> {
     action = await invokeIpc<VscodeSessionActionRequest | null>('vscode_take_session_action');
     if (action === null) return;
     const view = await getExecutionSessionView(action.projectId, action.sessionId);
+    if (action.action === 'handoff-context') {
+      await publishVscodeHandoffView(action.projectId, action.sessionId, await getVscodeHandoffContext(action.projectId, action.sessionId));
+      await invokeIpc('vscode_complete_session_action', {
+        actionId: action.id,
+        success: true,
+        message: 'Handoff context loaded.',
+      });
+      return;
+    }
+    if (action.action === 'handoff-preview') {
+      const targetModel = openCodeModelSchema.parse(action.payload);
+      await publishVscodeHandoffView(
+        action.projectId,
+        action.sessionId,
+        await getVscodeHandoffPreview(action.projectId, action.sessionId, targetModel),
+      );
+      await invokeIpc('vscode_complete_session_action', {
+        actionId: action.id,
+        success: true,
+        message: 'Handoff preview prepared.',
+      });
+      return;
+    }
+    if (action.action === 'handoff-confirm') {
+      if (typeof action.payload !== 'string' || action.payload.trim() === '') {
+        throw new Error('A handoff preview is required before confirmation.');
+      }
+      await publishVscodeHandoffView(
+        action.projectId,
+        action.sessionId,
+        await getVscodeHandoffResult(action.projectId, action.sessionId, action.payload),
+      );
+      await invokeIpc('vscode_complete_session_action', {
+        actionId: action.id,
+        success: true,
+        message: 'Handoff complete. A new OpenCode session was created.',
+      });
+      return;
+    }
     if (action.action === 'checkpoint') {
       const note = action.note?.trim() ?? '';
       if (!view.controls.canCheckpoint || note === '') throw new Error('A non-empty checkpoint note is required.');

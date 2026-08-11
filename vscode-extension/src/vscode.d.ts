@@ -14,6 +14,9 @@ declare module 'vscode' {
     tooltip?: string;
     command?: Command;
   }
+  export enum ViewColumn { One = 1 }
+  export interface Webview { html: string; onDidReceiveMessage(listener: (message: unknown) => unknown): Disposable }
+  export interface WebviewPanel extends Disposable { webview: Webview; reveal(viewColumn?: ViewColumn): void; onDidDispose(listener: () => unknown): Disposable }
   export interface Command { command: string; title: string; arguments?: unknown[] }
   export interface TreeDataProvider<T> {
     readonly onDidChangeTreeData?: Event<T | undefined | null | void>;
@@ -28,6 +31,7 @@ declare module 'vscode' {
     function showErrorMessage(message: string): PromiseLike<string | undefined>;
     function showInformationMessage(message: string): PromiseLike<string | undefined>;
     function showWarningMessage(message: string, options: { modal?: boolean }, ...items: string[]): PromiseLike<string | undefined>;
+    function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options: { enableScripts?: boolean }): WebviewPanel;
   }
   export namespace commands {
     function registerCommand(command: string, callback: (...args: unknown[]) => unknown): Disposable;
