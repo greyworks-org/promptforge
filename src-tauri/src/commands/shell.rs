@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use serde::Serialize;
 
@@ -87,6 +88,181 @@ pub fn runtime_status(runtime: String) -> Result<RuntimeStatus, String> {
             error: Some(format!("{} is unavailable: {}", binary, error)),
         }),
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeModel {
+    pub runtime: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub model_ref: String,
+    pub display_name: String,
+    pub available: bool,
+    pub configured: bool,
+    pub availability: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeModelDiscovery {
+    pub runtime: String,
+    pub models: Vec<OpenCodeModel>,
+    pub source: String,
+    pub warning: Option<String>,
+}
+
+fn strip_ansi(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut in_escape = false;
+    for ch in value.chars() {
+        if in_escape {
+            if ch.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+            continue;
+        }
+        if ch == '\u{1b}' {
+            in_escape = true;
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
+fn parse_model_refs(output: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    for line in strip_ansi(output).lines() {
+        let Some(candidate) = line.split_whitespace().next() else { continue };
+        if !candidate.contains('/') || !valid_runtime_value(candidate, 256) { continue }
+        if refs.iter().any(|model_ref| model_ref == candidate) { continue }
+        refs.push(candidate.to_string());
+    }
+    refs
+}
+
+fn model_from_ref(model_ref: &str, available: bool, configured: bool, availability: &str) -> Option<OpenCodeModel> {
+    let (provider_id, model_id) = model_ref.split_once('/')?;
+    if provider_id.is_empty() || model_id.is_empty() || !valid_runtime_value(model_ref, 256) {
+        return None;
+    }
+    Some(OpenCodeModel {
+        runtime: "opencode".into(),
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+        model_ref: model_ref.to_string(),
+        display_name: model_ref.to_string(),
+        available,
+        configured,
+        availability: availability.to_string(),
+    })
+}
+
+fn extract_model_ref(config: &str) -> Option<String> {
+    for line in config.lines() {
+        let trimmed = line.trim();
+        let Some(key_start) = trimmed.find("\"model\"") else { continue };
+        let rest = &trimmed[key_start + "\"model\"".len()..];
+        let rest = rest.trim_start();
+        let rest = rest.strip_prefix(':')?.trim_start();
+        let quoted = rest.strip_prefix('"')?;
+        let end = quoted.find('"')?;
+        let model_ref = &quoted[..end];
+        if model_ref.contains('/') && valid_runtime_value(model_ref, 256) {
+            return Some(model_ref.to_string());
+        }
+    }
+    None
+}
+
+fn configured_model_ref(project_root: &Path) -> Option<String> {
+    let mut paths = vec![
+        project_root.join("opencode.json"),
+        project_root.join("opencode.jsonc"),
+    ];
+    if let Ok(config_path) = env::var("OPENCODE_CONFIG") {
+        let path = PathBuf::from(config_path);
+        paths.push(if path.is_absolute() { path } else { project_root.join(path) });
+    }
+    let config_home = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    if let Some(config_home) = config_home {
+        let opencode = config_home.join("opencode");
+        paths.extend([
+            opencode.join("opencode.json"),
+            opencode.join("opencode.jsonc"),
+            opencode.join("settings.json"),
+        ]);
+    }
+    for path in paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(model_ref) = extract_model_ref(&content) {
+                return Some(model_ref);
+            }
+        }
+    }
+    None
+}
+
+/// Reads OpenCode's model catalog without importing or duplicating provider credentials.
+/// The CLI may fail when its external state is unavailable, so the configured model is a
+/// deliberate, clearly marked fallback rather than an inferred provider registry.
+#[tauri::command]
+pub fn opencode_models(project_root: String) -> Result<OpenCodeModelDiscovery, String> {
+    let root = PathBuf::from(&project_root);
+    if !root.is_dir() {
+        return Err(format!("Not a directory: {}", project_root));
+    }
+
+    let configured = configured_model_ref(&root);
+    let command = Command::new("opencode")
+        .arg("models")
+        .current_dir(&root)
+        .output();
+    let (refs, command_succeeded) = match command {
+        Ok(output) => (parse_model_refs(&String::from_utf8_lossy(&output.stdout)), output.status.success()),
+        Err(_) => (Vec::new(), false),
+    };
+
+    let mut models: Vec<OpenCodeModel> = refs.iter()
+        .filter_map(|model_ref| model_from_ref(
+            model_ref,
+            true,
+            configured.as_deref() == Some(model_ref.as_str()),
+            "available",
+        ))
+        .collect();
+    if let Some(configured_ref) = configured.as_deref() {
+        if !models.iter().any(|model| model.model_ref == configured_ref) {
+            if let Some(model) = model_from_ref(configured_ref, false, true, "configured") {
+                models.push(model);
+            }
+        }
+    }
+
+    let source = if command_succeeded && !refs.is_empty() {
+        "opencode-cli"
+    } else if configured.is_some() {
+        "configured-fallback"
+    } else {
+        "unavailable"
+    };
+    let warning = if source == "opencode-cli" {
+        None
+    } else if configured.is_some() {
+        Some("OpenCode model enumeration was unavailable; showing the configured model only.".into())
+    } else {
+        Some("OpenCode model enumeration was unavailable and no configured model was found.".into())
+    };
+
+    Ok(OpenCodeModelDiscovery {
+        runtime: "opencode".into(),
+        models,
+        source: source.into(),
+        warning,
+    })
 }
 
 fn valid_runtime_value(value: &str, max: usize) -> bool {
@@ -200,6 +376,29 @@ pub fn launch_cli(binary_path: String, project_root: String) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_plain_and_ansi_model_refs_without_duplicates() {
+        let refs = parse_model_refs("\u{1b}[32mopenrouter/deepseek/deepseek-v4-pro\u{1b}[0m\nopenai/gpt-5.6\nopenai/gpt-5.6");
+        assert_eq!(refs, vec![
+            "openrouter/deepseek/deepseek-v4-pro".to_string(),
+            "openai/gpt-5.6".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn extracts_only_the_model_setting_from_jsonc() {
+        let config = r#"{ "provider": { "openrouter": { "apiKey": "must-not-be-read" } }, "model": "openrouter/deepseek/deepseek-v4-pro" }"#;
+        assert_eq!(extract_model_ref(config), Some("openrouter/deepseek/deepseek-v4-pro".into()));
+        assert_eq!(extract_model_ref("\"model\": \"openrouter/deepseek/deepseek-v4-pro\","), Some("openrouter/deepseek/deepseek-v4-pro".into()));
+    }
+
+    #[test]
+    fn model_ref_splits_provider_from_nested_model_id() {
+        let model = model_from_ref("openrouter/deepseek/deepseek-v4-pro", true, true, "available").unwrap();
+        assert_eq!(model.provider_id, "openrouter");
+        assert_eq!(model.model_id, "deepseek/deepseek-v4-pro");
+    }
 
     #[test]
     fn open_terminal_rejects_non_directory() {

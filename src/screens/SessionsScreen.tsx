@@ -7,10 +7,12 @@ import {
   listSessionEvents,
   reconcileProjectSessions,
   renderSessionContinuation,
+  selectOpenCodeModel,
   switchSessionRuntime,
 } from '../sessions/executionSessionService';
 import type { ExecutionSession, SessionEvent, SessionRuntime } from '../sessions/types';
 import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectGuidance';
+import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
   formatVscodeConnection,
@@ -34,6 +36,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [note, setNote] = useState('');
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
   const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
+  const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelDiscovery | null>(null);
   const [vscodeConnection, setVscodeConnection] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +56,16 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       setGuidance(await inspectProjectGuidance(projectId));
       try { setOpenCodeAvailability(await detectRuntime('opencode')); } catch { setOpenCodeAvailability(null); }
       if (nextId) {
+        const nextSession = reconciled.find((session) => session.id === nextId);
+        if (nextSession?.runtime === 'opencode') {
+          try {
+            setOpenCodeModels(await getOpenCodeModelDiscovery(projectId, nextSession.binding.modelRef));
+          } catch {
+            setOpenCodeModels(null);
+          }
+        } else {
+          setOpenCodeModels(null);
+        }
         const [nextEvents, nextPrompt] = await Promise.all([
           listSessionEvents(projectId, nextId),
           renderSessionContinuation(projectId, nextId),
@@ -63,6 +76,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       } else {
         setEvents([]);
         setPrompt('');
+        setOpenCodeModels(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sessions could not be loaded.');
@@ -86,6 +100,16 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const select = async (sessionId: string) => {
     setSelectedId(sessionId);
     try {
+      const nextSession = sessions.find((session) => session.id === sessionId);
+      if (nextSession?.runtime === 'opencode') {
+        try {
+          setOpenCodeModels(await getOpenCodeModelDiscovery(projectId, nextSession.binding.modelRef));
+        } catch {
+          setOpenCodeModels(null);
+        }
+      } else {
+        setOpenCodeModels(null);
+      }
       const [nextEvents, nextPrompt] = await Promise.all([
         listSessionEvents(projectId, sessionId),
         renderSessionContinuation(projectId, sessionId),
@@ -95,6 +119,18 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       try { await publishVscodeSessionView(projectId, sessionId); } catch { /* panel connection is optional */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Session details could not be loaded.');
+    }
+  };
+
+  const chooseOpenCodeModel = async (modelRef: string) => {
+    if (!selected || selected.runtime !== 'opencode' || !openCodeModels) return;
+    const model = openCodeModels.models.find((item) => item.modelRef === modelRef);
+    if (!model) return;
+    try {
+      await selectOpenCodeModel(projectId, selected.id, model);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'OpenCode model selection failed.');
     }
   };
 
@@ -208,6 +244,28 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                   ))}
                 </div>
               </div>
+
+              {selected.runtime === 'opencode' && (
+                <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
+                  <label htmlFor="opencode-model" className="text-xs font-medium text-indigo-950">OpenCode model</label>
+                  <select
+                    id="opencode-model"
+                    value={selected.binding.modelRef ?? ''}
+                    onChange={(event) => void chooseOpenCodeModel(event.target.value)}
+                    disabled={!openCodeModels || openCodeModels.models.length === 0}
+                    className="mt-1 block w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs"
+                  >
+                    <option value="">Use OpenCode's configured default</option>
+                    {openCodeModels?.models.map((model) => (
+                      <option key={model.modelRef} value={model.modelRef}>
+                        {model.displayName} · {model.availability}
+                      </option>
+                    ))}
+                  </select>
+                  {openCodeModels?.warning && <p className="mt-1 text-[11px] text-amber-700">{openCodeModels.warning}</p>}
+                  <p className="mt-1 text-[11px] text-indigo-800">Provider credentials remain in OpenCode; PromptForge stores only this model binding.</p>
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>

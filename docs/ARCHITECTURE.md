@@ -572,3 +572,26 @@ requesting model receives the result without PromptForge transporting image
 bytes, injecting context, or creating a second session state. Normal text-only
 sessions and the Claude Code, Codex and Qwen Code paths are unchanged. Cloud
 Qwen visual APIs remain separate capabilities and are not configured here.
+
+### 11.9 OpenCode provider/model orchestration
+
+`src/services/opencodeModels.ts` defines the canonical OpenCode capability
+read model: runtime, provider ID, model ID, opaque `provider/model` reference,
+display name, availability and configured state. The Rust `opencode_models`
+command runs OpenCode's own `models` catalog command from the registered
+project root and returns only sanitized model metadata. It never returns
+OpenCode configuration contents or credentials.
+
+When OpenCode's external catalog cannot be queried, the command reads only the
+configured model reference from OpenCode's project/global configuration and
+returns it as `configured` rather than claiming catalog availability. A
+persisted PromptForge selection remains visible as `unknown` during that
+fallback. This is an explicit read-model fallback, not a PromptForge provider
+registry.
+
+An OpenCode session stores the selected provider/model in the existing opaque
+`runtime_metadata_json` binding. Start and resume pass only its `modelRef` to
+the existing structured OpenCode launcher. Luna, DeepSeek, Qwen and other
+models therefore remain OpenCode model choices; they do not receive separate
+PromptForge runtime adapters. Direct Claude Code, Codex and Qwen Code paths
+remain unchanged.

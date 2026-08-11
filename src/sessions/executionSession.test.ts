@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import { createBetterSqliteRunner } from '../db/betterSqliteRunner';
 import { runMigrations } from '../db/migrate';
@@ -9,12 +9,15 @@ import {
   appendSessionEvent,
   deriveExecutionSessionControls,
   getExecutionSession,
+  launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   renderSessionContinuation,
+  selectOpenCodeModel,
   startExecutionSession,
   switchSessionRuntime,
   setDbForTests,
 } from './executionSessionService';
+import * as runtimeService from '../services/runtimeService';
 
 let runner: QueryRunner;
 
@@ -78,6 +81,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   setDbForTests(null);
   await runner.close();
 });
@@ -140,5 +144,49 @@ describe('execution session continuity', () => {
     expect(switched.binding.modelId).toBe(task.target_model);
     expect(prompt).toContain('# PromptForge continuation · OpenCode');
     expect(prompt).toContain(task.objective);
+  });
+
+  it('persists the selected OpenCode model and forwards its opaque reference on launch', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    const model = {
+      runtime: 'opencode' as const,
+      providerId: 'openrouter',
+      modelId: 'deepseek/deepseek-v4-pro',
+      modelRef: 'openrouter/deepseek/deepseek-v4-pro',
+      displayName: 'OpenRouter DeepSeek V4 Pro',
+      available: true,
+      configured: true,
+      availability: 'available' as const,
+    };
+    const selected = await selectOpenCodeModel('project-session', created.id, model);
+    expect(selected.binding).toMatchObject({
+      providerId: 'openrouter',
+      modelId: 'deepseek/deepseek-v4-pro',
+      modelRef: 'openrouter/deepseek/deepseek-v4-pro',
+    });
+
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode',
+      binary: 'opencode',
+      installed: true,
+      canLaunch: true,
+      supportsResume: true,
+      supportsModelRouting: true,
+      version: '1.15.10',
+      capabilities: ['model-routing'],
+      error: null,
+    });
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue();
+
+    await launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume');
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      runtime: 'opencode',
+      resume: true,
+      externalSessionId: null,
+      modelRef: 'openrouter/deepseek/deepseek-v4-pro',
+    }));
   });
 });

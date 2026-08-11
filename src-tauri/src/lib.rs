@@ -43,6 +43,7 @@ pub fn run() {
             commands::shell::open_terminal,
             commands::shell::launch_cli,
             commands::shell::runtime_status,
+            commands::shell::opencode_models,
             commands::shell::launch_runtime,
             commands::vscode::vscode_read_model_endpoint,
             commands::vscode::vscode_publish_session_view,

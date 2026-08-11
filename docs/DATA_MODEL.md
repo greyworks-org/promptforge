@@ -187,7 +187,9 @@ session. It stores an opaque binding (`providerId`, `modelId`, `modelRef`,
 `variant`, external runtime session id, detected version and capability names).
 PromptForge uses this for display and launch routing; it does not interpret or
 replace the canonical TaskSpec/project memory with OpenCode's own session
-database.
+database. For OpenCode, the selected model is persisted in this binding and
+the launch path forwards only `modelRef`; provider credentials remain owned by
+OpenCode and never enter the session row.
 
 ### 1.6 `project_memory` — the central per-project memory record
 

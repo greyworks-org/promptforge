@@ -15,10 +15,10 @@
 
 ## Progress
 
-- **Current phase:** VS Code Session Control Layer complete — VS Code requests explicit Start/Resume/Checkpoint actions through PromptForge; PromptForge remains canonical and OpenCode remains the primary runtime.
-- **Last validated task:** VS Code Session Control Layer (2026-08-11) — confirmation-gated extension controls, scoped action queue, PromptForge-side OpenCode/session routing, refreshed read-model results, and clear success/failure feedback; targeted control tests, extension typecheck, root typecheck, full TypeScript tests, production build, and Rust tests passed.
-- **Current task:** none — bounded OpenCode Qwen-MM Core shared capability completed (2026-08-11).
-- **Next task:** VS Code live session observability layer — resilient reconnect plus event/progress refresh semantics for the existing canonical session view.
+- **Current phase:** OpenCode Provider & Model Orchestration Foundation complete — OpenCode model/provider capability discovery and canonical session model selection are now available without model-specific runtime adapters.
+- **Last validated task:** OpenCode Provider & Model Orchestration Foundation (2026-08-11) — sanitized `opencode models` read model with configured-model fallback, persistent OpenCode model binding, and selected-model start/resume routing; full TypeScript/build/Rust/Qwen-MM gates passed.
+- **Current task:** none — OpenCode Provider & Model Orchestration Foundation completed (2026-08-11).
+- **Next task:** Cross-Model Handoff & Continuation Layer — continue through canonical session state without adding model-specific OpenCode adapters.
 
 ## Decisions (confirmed)
 
@@ -32,6 +32,7 @@
 - OpenCode is a first-class runtime path, but OpenCode's own session store is external evidence only; PromptForge SQLite `ExecutionSession`, TaskSpec, project memory, transcript/checkpoints and Git state remain canonical. Runtime/model routing is opaque metadata (`providerId`, `modelId`, `modelRef`, `variant`) so new providers do not require hardcoded model registries.
 - VS Code is a visual client with confirmation-gated session controls. The extension consumes `getExecutionSessionView` and queues only fixed Start/Resume/Checkpoint actions through a per-launch-tokenized loopback bridge; PromptForge owns execution, session state, SQLite, runtime launch, and provider boundaries.
 - OpenCode shared visual capability: project `opencode.json` registers the upstream local-only Qwen-MM Core MCP server through native OpenCode configuration, and `.opencode/skills/qwen-mm-plugins-core/SKILL.md` makes the capability discoverable without forced visual context. PromptForge does not transport image bytes, store a Qwen key, add a provider adapter, or couple compiler/session state to Qwen-MM.
+- OpenCode model orchestration: `opencode_models` invokes OpenCode's native catalog command and returns only a validated provider/model read model. If catalog access fails, only the configured model reference is read and marked configured-but-not-enumerated; session state stores the opaque model binding, never provider credentials.
 - Phase 1 additions: `keychain_get` stays Rust-internal; the webview boundary exposes only `keychain_has` (presence) — stricter than the Phase 0 command table, same security intent. Tailwind v4 via `@tailwindcss/vite`. Placeholder app icon (`src-tauri/icons/icon.png`) until branding. Rust toolchain installed via Homebrew; pnpm runs through corepack (`corepack pnpm …`, or `corepack enable pnpm` for plain `pnpm`).
 - Phase 2 additions: one `QueryRunner` seam with two adapters — `tauri-plugin-sql` (production, DB file `sqlite:promptforge.db` in app data dir, `PRAGMA foreign_keys = ON`) and better-sqlite3 (dev dependency, tests only). Numbered SQL migrations in `src/db/migrations/` run from TypeScript (`src/db/migrate.ts`) inside transactions, tracked by a `schema_migrations` table with a newer-DB downgrade guard. Folder selection uses `tauri-plugin-dialog`; folder validation/canonicalization uses a read-only Rust `fs_metadata` command (keeps the R5 fs-scope spike in Phase 3). Settings live under the `provider.profiles` settings key (DATA_MODEL.md §1.5 shape); the Phase 1 localStorage stub is imported once, then removed. Removing a project deletes only app-DB rows (cascade); on-disk folders are never touched. pnpm build approval: `pnpm.onlyBuiltDependencies: ["better-sqlite3"]` in package.json.
 - 2026-08-07 · Architecture contract update — `target_provider` replaced with `target_model` + `agent_runtime` + `execution_profile` across both schemas (compiler-output + taskspec). Schema versions: compiler-output → 1.1.0, taskspec → 1.1.0. Four canonical execution profiles defined (deepseek-v4-pro-claude-code primary; qwen-3.8-max-qwen-code; gpt-5.6-sol-high-codex; opus-5-high-claude-code). Profiles control 10 working-style parameters (planning_depth, exploration_budget, context_reuse, reasoning_effort, test_strategy, final_validation, retry_budget, progress_verbosity, autonomy, guardrail_strength) — never task meaning. Renderers renamed: renderQwen→renderQwenCode, renderCodex→no change, renderClaude→renderClaudeCode. AGENTS.md stays shared; runtime-specific instruction files unchanged. DATA_MODEL compilations table: +target_model, +agent_runtime, +execution_profile, +profile_version; task_outcomes: used_provider→used_runtime. All 14 fixtures updated; AJV validation passes.
@@ -57,6 +58,7 @@
 - src/services/{settingsService,providerService,projectsService,projectFs,repoScan,anchor,consent,profileDraft}.ts · src/schemas/providerProfile.ts · src/ipc/index.ts
 - src/sessions/{types,adapters,executionSessionService}.ts · src/db/repos/executionSessions.ts · src/screens/SessionsScreen.tsx · src/services/projectGuidance.ts
 - src/services/runtimeService.ts · src/db/migrations/0007_runtime_metadata.sql · src-tauri/src/commands/shell.rs
+- src/services/opencodeModels.ts · src/services/opencodeModels.test.ts
 - opencode.json · .opencode/skills/qwen-mm-plugins-core/SKILL.md · tools/validate-opencode-capability.mjs
 - src/services/vscodeIntegration.ts · src-tauri/src/commands/vscode.rs · vscode-extension/{package.json,src/*}
 - src/redaction/blocklist.ts · src/templates/{instructions,contextDocs}.ts
@@ -89,14 +91,16 @@
 - 2026-08-11 · OpenCode Runtime Integration Foundation validated: OpenCode 1.15.10 is detected through a fixed Rust runtime command; OpenCode start/resume uses structured `--continue`/`--session`/opaque `--model` arguments with no prompt injection; runtime metadata persists separately from canonical TaskSpec/session state; `getExecutionSessionView` exposes status, active runtime/model, progress, live changed files, events and completion/failure for the future VS Code panel. Gates: TypeScript 453/453; typecheck; production build; Rust 71/71.
 - 2026-08-11 · VS Code Visual Integration Layer validated: the existing `getExecutionSessionView` is published through a tokenized loopback-only in-memory bridge; Sessions copies a scoped connection URI and refreshes the derived view; the VS Code extension validates and displays status, runtime/model, progress, changed files, and recent events. Gates: targeted connection tests 2/2; extension typecheck; root typecheck; Rust bridge tests 2/2; final full TypeScript/Rust/build validation recorded at completion.
 - 2026-08-11 · VS Code Session Control Layer validated: confirmation-gated Start/Resume/Checkpoint controls enqueue fixed project/session actions; PromptForge claims them, routes OpenCode/session mutations through existing services, republishes the canonical view, and returns explicit outcomes. Gates: targeted TypeScript/session tests 5/5; extension typecheck; root typecheck; Rust control-bridge tests 4/4; final full validation recorded at completion.
+- 2026-08-11 · OpenCode Provider & Model Orchestration Foundation validated: `opencode_models` returns sanitized CLI model capabilities with an explicit configured-model fallback; Sessions can select and persist `providerId`/`modelId`/`modelRef`; OpenCode start/resume forwards the selected reference; direct runtimes, VS Code controls and Qwen-MM were untouched. Gates: TypeScript 460/460; typecheck; production build; `validate:opencode-capability`; Rust 78/78.
 
 ## Git checkpoint
 
-- **Latest commit:** `feat(vscode): add session control bridge`.
+- **Latest commit:** `feat(opencode): add model orchestration foundation`.
 - **Uncommitted changes:** none.
 
 ## Recent history
 
+- 2026-08-11 · OpenCode Provider & Model Orchestration Foundation — sanitized OpenCode model/provider discovery, explicit configured-model fallback, persistent model selection, and selected-model start/resume routing.
 - 2026-08-10 · PromptForge v1 committed external-change context edge case — previous semantic HEAD is used for bounded commit-range refresh evidence when the working tree is clean.
 - 2026-08-10 · PromptForge v1 live semantic context refresh — Continue fingerprints registered repository source state, performs at most one bounded provider refresh per changed fingerprint, persists semantic evidence, and integrates it into all runtime handoffs.
 - 2026-08-10 · PromptForge v1 handoff hardening — canonical repository path, evidence wording, execution/target labels, safety normalization, Git path parsing, and generated-path filtering.

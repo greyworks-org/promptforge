@@ -664,6 +664,32 @@ checks that `read_image` is advertised, and verifies the returned content has
 both text and image parts. Cloud/API Qwen capabilities are intentionally out of
 scope.
 
+## OpenCode Provider & Model Orchestration Foundation
+
+This phase adds the first model-aware OpenCode capability without creating
+model-specific PromptForge runtimes. `src/services/opencodeModels.ts` owns the
+validated read model for OpenCode provider/model capabilities. The Rust shell
+boundary invokes OpenCode's native `models` command and sanitizes its output
+to provider ID, model ID, model reference, display name, availability and
+configured state.
+
+OpenCode catalog access is allowed to be unavailable: the smallest explicit
+fallback reads only the configured model reference from OpenCode config and
+marks it configured-but-not-enumerated. PromptForge may retain a previously
+selected model as unknown for display, but never copies provider credentials.
+The selected model is persisted through the existing opaque session binding
+and passed unchanged as OpenCode's `--model` value on start/resume. Direct
+Claude Code, Codex and Qwen Code adapters remain compatibility paths.
+
+**Completion condition.** A structured OpenCode model set can be obtained or
+falls back explicitly; an OpenCode session can select and persist a model;
+start/resume forwards that model; direct runtimes, VS Code session controls and
+Qwen-MM remain unchanged; TypeScript, Rust, typecheck and build gates pass.
+
+**Next recommended phase.** Cross-Model Handoff & Continuation Layer. This
+phase must build on the canonical session binding and must not add model-
+specific OpenCode adapters.
+
 ## After Phase 11 (MVP release gate)
 
 - Execute `MVP_SCOPE.md` §4 definition-of-done end-to-end on two real

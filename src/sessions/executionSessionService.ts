@@ -12,6 +12,7 @@ import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
 import { getProject, listProjects } from '../services/projectsService';
 import { detectRuntime, launchRuntimeProcess, type RuntimeAvailability } from '../services/runtimeService';
+import type { OpenCodeModel } from '../services/opencodeModels';
 import { adapterFor } from './adapters';
 import {
   emptySessionState,
@@ -160,6 +161,24 @@ export async function updateSessionBinding(
   const updated = await (await repo()).update(projectId, sessionId, { binding });
   if (updated === null) throw new Error('Execution session was not found for this project.');
   return updated;
+}
+
+/** Persist the selected OpenCode model without creating a model-specific adapter. */
+export async function selectOpenCodeModel(
+  projectId: string,
+  sessionId: string,
+  model: OpenCodeModel,
+): Promise<ExecutionSession> {
+  if (model.runtime !== 'opencode') throw new Error('Only OpenCode models can be selected for an OpenCode session.');
+  const session = await getExecutionSession(projectId, sessionId);
+  if (session === null) throw new Error('Execution session was not found for this project.');
+  if (session.runtime !== 'opencode') throw new Error('Switch the session to OpenCode before selecting an OpenCode model.');
+  return updateSessionBinding(projectId, sessionId, {
+    ...session.binding,
+    providerId: model.providerId,
+    modelId: model.modelId,
+    modelRef: model.modelRef,
+  });
 }
 
 export async function finishExecutionSession(
