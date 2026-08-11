@@ -21,6 +21,7 @@ const RUNTIME_BINARIES: Record<string, string> = {
   'claude-code': 'claude',
   'qwen-code': 'qwen',
   'codex': 'codex',
+  'opencode': 'opencode',
 };
 
 /**

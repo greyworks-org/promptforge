@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   finishExecutionSession,
   appendSessionEvent,
+  launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   reconcileProjectSessions,
   renderSessionContinuation,
@@ -9,6 +10,7 @@ import {
 } from '../sessions/executionSessionService';
 import type { ExecutionSession, SessionEvent, SessionRuntime } from '../sessions/types';
 import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectGuidance';
+import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 
 export interface SessionsScreenProps {
   projectId: string;
@@ -16,7 +18,7 @@ export interface SessionsScreenProps {
   onClose: () => void;
 }
 
-const runtimes: SessionRuntime[] = ['claude-code', 'codex', 'qwen-code'];
+const runtimes: SessionRuntime[] = ['opencode', 'claude-code', 'codex', 'qwen-code'];
 
 export function SessionsScreen({ projectId, projectName, onClose }: SessionsScreenProps) {
   const [sessions, setSessions] = useState<ExecutionSession[]>([]);
@@ -25,6 +27,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [prompt, setPrompt] = useState('');
   const [note, setNote] = useState('');
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
+  const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +44,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
         : reconciled[0]?.id ?? null;
       setSelectedId(nextId);
       setGuidance(await inspectProjectGuidance(projectId));
+      try { setOpenCodeAvailability(await detectRuntime('opencode')); } catch { setOpenCodeAvailability(null); }
       if (nextId) {
         const [nextEvents, nextPrompt] = await Promise.all([
           listSessionEvents(projectId, nextId),
@@ -95,6 +99,16 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
     }
   };
 
+  const launchOpenCode = async (mode: 'start' | 'resume') => {
+    if (!selected) return;
+    try {
+      await launchExecutionSessionThroughOpenCode(projectId, selected.id, mode);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'OpenCode launch failed.');
+    }
+  };
+
   const saveNote = async () => {
     if (!selected || note.trim() === '') return;
     try {
@@ -117,7 +131,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-xl font-semibold">Sessions · {projectName}</h2>
-          <p className="mt-1 text-sm text-zinc-500">Persistent task continuity shared by Claude Code, Codex and Qwen Code.</p>
+          <p className="mt-1 text-sm text-zinc-500">Persistent task continuity shared by OpenCode, Claude Code, Codex and Qwen Code.</p>
+          {openCodeAvailability && <p className={`mt-1 text-xs ${openCodeAvailability.installed ? 'text-emerald-700' : 'text-amber-700'}`}>OpenCode: {openCodeAvailability.installed ? `available${openCodeAvailability.version ? ` · ${openCodeAvailability.version}` : ''}` : 'not detected'}</p>}
         </div>
         <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-700">Back</button>
       </div>
@@ -141,7 +156,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 onClick={() => void select(session.id)}
                 className={`w-full rounded-md border p-3 text-left text-xs ${selected?.id === session.id ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 bg-white'}`}
               >
-                <span className="block font-medium">{session.runtime}</span>
+                <span className="block font-medium">{session.runtime === 'opencode' ? 'OpenCode' : session.runtime}</span>
                 <span className="mt-1 block text-zinc-500">{session.status}</span>
                 <span className="mt-1 block font-mono text-[10px] text-zinc-400">{session.id.slice(0, 24)}</span>
               </button>
@@ -153,12 +168,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold">{selected.state.objective || 'Recovered task session'}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{selected.status} · started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{selected.status} · model {selected.binding.modelId ?? 'runtime default'} · started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
                 </div>
                 <div className="flex gap-1">
                   {runtimes.map((runtime) => (
                     <button key={runtime} type="button" onClick={() => void switchRuntime(runtime)} className={`rounded border px-2 py-1 text-[11px] ${selected.runtime === runtime ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300'}`}>
-                      {runtime === 'claude-code' ? 'Claude' : runtime === 'qwen-code' ? 'Qwen' : 'Codex'}
+                      {runtime === 'opencode' ? 'OpenCode' : runtime === 'claude-code' ? 'Claude' : runtime === 'qwen-code' ? 'Qwen' : 'Codex'}
                     </button>
                   ))}
                 </div>
@@ -166,6 +181,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
+                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Open in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
                 <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
               </div>

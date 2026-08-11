@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { QueryRunner, SqlParam } from '../runner';
 import {
   canonicalSessionStateSchema,
+  runtimeBindingSchema,
   runtimeSchema,
   sessionEventKindSchema,
   sessionStatusSchema,
@@ -11,6 +12,7 @@ import {
   type SessionEventKind,
   type SessionRuntime,
   type SessionStatus,
+  type RuntimeBinding,
 } from '../../sessions/types';
 
 const sessionRowSchema = z.object({
@@ -20,6 +22,7 @@ const sessionRowSchema = z.object({
   task_id: z.string().nullable(),
   runtime: runtimeSchema,
   status: sessionStatusSchema,
+  runtime_metadata_json: z.string().default('{}'),
   state_json: z.string(),
   base_commit: z.string().nullable(),
   last_known_head: z.string().nullable(),
@@ -54,6 +57,10 @@ function parseMetadata(raw: string): Record<string, string> {
   return result;
 }
 
+function parseBinding(raw: string): RuntimeBinding {
+  return runtimeBindingSchema.parse(JSON.parse(raw));
+}
+
 function toSession(row: unknown): ExecutionSession {
   const parsed = sessionRowSchema.parse(row);
   return {
@@ -63,6 +70,7 @@ function toSession(row: unknown): ExecutionSession {
     taskId: parsed.task_id,
     runtime: parsed.runtime,
     status: parsed.status,
+    binding: parseBinding(parsed.runtime_metadata_json),
     state: parseState(parsed.state_json),
     baseCommit: parsed.base_commit,
     lastKnownHead: parsed.last_known_head,
@@ -88,7 +96,7 @@ function toEvent(row: unknown): SessionEvent {
 }
 
 const SESSION_SELECT = `SELECT id, project_id, compilation_id, task_id, runtime, status,
-  state_json, base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at
+  runtime_metadata_json, state_json, base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at
 FROM execution_sessions`;
 
 const EVENT_SELECT = `SELECT id, session_id, project_id, kind, runtime, content,
@@ -100,6 +108,7 @@ export interface NewExecutionSession {
   compilationId?: string | null;
   taskId?: string | null;
   runtime: SessionRuntime;
+  binding?: RuntimeBinding;
   status?: SessionStatus;
   state: CanonicalSessionState;
   baseCommit?: string | null;
@@ -108,6 +117,7 @@ export interface NewExecutionSession {
 
 export interface SessionPatch {
   runtime?: SessionRuntime;
+  binding?: RuntimeBinding;
   status?: SessionStatus;
   state?: CanonicalSessionState;
   lastKnownHead?: string | null;
@@ -147,12 +157,15 @@ export function createExecutionSessionsRepository(runner: QueryRunner): Executio
       const now = new Date().toISOString();
       await runner.execute(
         `INSERT INTO execution_sessions
-          (id, project_id, compilation_id, task_id, runtime, status, state_json,
+          (id, project_id, compilation_id, task_id, runtime, status, runtime_metadata_json, state_json,
            base_commit, last_known_head, recovery_reason, started_at, last_active_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
         [
           input.id, input.projectId, input.compilationId ?? null, input.taskId ?? null,
-          input.runtime, input.status ?? 'active', JSON.stringify(input.state),
+          input.runtime, input.status ?? 'active', JSON.stringify(input.binding ?? {
+            providerId: null, modelId: null, modelRef: null, variant: null,
+            runtimeSessionId: null, detectedVersion: null, capabilities: [],
+          }), JSON.stringify(input.state),
           input.baseCommit ?? null, input.lastKnownHead ?? null, now, now,
         ],
       );
@@ -177,6 +190,7 @@ export function createExecutionSessionsRepository(runner: QueryRunner): Executio
       const params: SqlParam[] = [];
       if (patch.runtime !== undefined) { sets.push('runtime = ?'); params.push(patch.runtime); }
       if (patch.status !== undefined) { sets.push('status = ?'); params.push(patch.status); }
+      if (patch.binding !== undefined) { sets.push('runtime_metadata_json = ?'); params.push(JSON.stringify(patch.binding)); }
       if (patch.state !== undefined) { sets.push('state_json = ?'); params.push(JSON.stringify(patch.state)); }
       if (patch.lastKnownHead !== undefined) { sets.push('last_known_head = ?'); params.push(patch.lastKnownHead); }
       if (patch.recoveryReason !== undefined) { sets.push('recovery_reason = ?'); params.push(patch.recoveryReason); }

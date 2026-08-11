@@ -66,6 +66,7 @@ export const RUNTIME_ADAPTERS: Record<SessionRuntime, RuntimeAdapter> = {
   'claude-code': makeAdapter('claude-code', 'Claude Code', ['AGENTS.md', 'CLAUDE.md']),
   'qwen-code': makeAdapter('qwen-code', 'Qwen Code', ['AGENTS.md', 'QWEN.md']),
   codex: makeAdapter('codex', 'Codex', ['AGENTS.md']),
+  opencode: makeAdapter('opencode', 'OpenCode', ['AGENTS.md']),
 };
 
 export function adapterFor(runtime: SessionRuntime): RuntimeAdapter {

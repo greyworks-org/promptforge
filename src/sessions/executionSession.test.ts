@@ -107,4 +107,17 @@ describe('execution session continuity', () => {
     expect(prompt).toContain('Typecheck passed.');
     expect(prompt).toContain('AGENTS.md and CLAUDE.md');
   });
+
+  it('supports OpenCode as a runtime without replacing canonical session state', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'claude-code', task, memory, git,
+    });
+    const switched = await switchSessionRuntime('project-session', created.id, 'opencode');
+    const prompt = await renderSessionContinuation('project-session', created.id);
+
+    expect(switched.runtime).toBe('opencode');
+    expect(switched.binding.modelId).toBe(task.target_model);
+    expect(prompt).toContain('# PromptForge continuation · OpenCode');
+    expect(prompt).toContain(task.objective);
+  });
 });

@@ -23,6 +23,7 @@ export const RUNTIME_BINARIES: Record<string, string> = {
   'claude-code': 'claude',
   'qwen-code': 'qwen',
   'codex': 'codex',
+  'opencode': 'opencode',
 };
 
 export function resolveBinary(runtime: string): { ok: true; binary: string } | { ok: false; error: string } {

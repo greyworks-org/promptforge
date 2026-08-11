@@ -580,6 +580,20 @@ arbitrary command path.
 
 ---
 
+## OpenCode Runtime Integration Foundation
+
+This phase keeps PromptForge as the canonical project/session intelligence
+layer while adding OpenCode as a first-class runtime path. OpenCode is
+detected and launched through fixed Rust commands; PromptForge persists the
+runtime/model binding and its own transcript/checkpoints, while OpenCode's
+session store remains external runtime state. `getExecutionSessionView` is
+the runtime-independent read model reserved for the later VS Code panel.
+Direct Claude Code, Codex and Qwen adapters remain supported.
+
+The next phase is the VS Code Visual Integration Layer. It consumes the
+session read model and does not move canonical state into the extension or
+OpenCode.
+
 ## After Phase 11 (MVP release gate)
 
 - Execute `MVP_SCOPE.md` §4 definition-of-done end-to-end on two real

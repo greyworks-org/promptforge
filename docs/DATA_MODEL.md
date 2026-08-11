@@ -170,7 +170,7 @@ local transcript/checkpoint knowledge. Both tables carry `project_id` and
 are deleted with their project; every repository read and write is scoped by
 project ID.
 
-Runtime adapters for Claude Code, Codex and Qwen Code render the same
+Runtime adapters for Claude Code, Codex, Qwen Code and OpenCode render the same
 canonical state and recent events into runtime-specific continuation prompts.
 Switching runtime updates the session and records a `runtime_switch` event;
 it never creates provider-specific state. On startup, active sessions are
@@ -181,6 +181,13 @@ session row (for example, work began before Session Core), PromptForge
 creates an `external` recovery session without an AI call or filesystem
 write. The existing deterministic handoff remains the fallback when no
 transcript is available.
+
+Migration `0007_runtime_metadata.sql` adds `runtime_metadata_json` to each
+session. It stores an opaque binding (`providerId`, `modelId`, `modelRef`,
+`variant`, external runtime session id, detected version and capability names).
+PromptForge uses this for display and launch routing; it does not interpret or
+replace the canonical TaskSpec/project memory with OpenCode's own session
+database.
 
 ### 1.6 `project_memory` — the central per-project memory record
 

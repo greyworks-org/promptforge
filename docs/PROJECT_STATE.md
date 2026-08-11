@@ -15,10 +15,10 @@
 
 ## Progress
 
-- **Current phase:** MVP v1 + Session Core productization complete — persistent local execution continuity is release-gated; optional worktrees remain deferred.
-- **Last validated task:** Session Core productization (2026-08-11) — canonical SQLite-backed ExecutionSession state/events, Claude Code/Codex/Qwen adapters, restart reconciliation, safe external-session recovery, runtime switching, Sessions UX, and read-only Rules/Skills visibility; TypeScript 450/450, typecheck, production build, and Rust 66/66 passed.
+- **Current phase:** OpenCode Runtime Integration Foundation complete — OpenCode is a first-class launch/resume adapter; PromptForge remains canonical; VS Code visual integration is next.
+- **Last validated task:** OpenCode Runtime Integration Foundation (2026-08-11) — OpenCode detection/capabilities, fixed structured start/resume launch, opaque runtime/model binding, canonical session read model, and preserved Claude Code/Codex/Qwen fallback adapters; TypeScript 453/453, typecheck, production build, and Rust 71/71 passed.
 - **Current task:** none.
-- **Next task:** macOS .dmg packaging + signing/notarization (requires Apple Developer credentials).
+- **Next task:** VS Code Visual Integration Layer — consume the PromptForge session read model without moving canonical state into VS Code or OpenCode.
 
 ## Decisions (confirmed)
 
@@ -29,6 +29,7 @@
 - Two contracts: `schemas/compiler-output.schema.json` → enrichment → `schemas/taskspec.schema.json`; repair bounded to one call.
 - Git is inspected read-only; memory never overrides repository reality.
 - Handoff rendering is deterministic and requires no model call.
+- OpenCode is a first-class runtime path, but OpenCode's own session store is external evidence only; PromptForge SQLite `ExecutionSession`, TaskSpec, project memory, transcript/checkpoints and Git state remain canonical. Runtime/model routing is opaque metadata (`providerId`, `modelId`, `modelRef`, `variant`) so new providers do not require hardcoded model registries.
 - Phase 1 additions: `keychain_get` stays Rust-internal; the webview boundary exposes only `keychain_has` (presence) — stricter than the Phase 0 command table, same security intent. Tailwind v4 via `@tailwindcss/vite`. Placeholder app icon (`src-tauri/icons/icon.png`) until branding. Rust toolchain installed via Homebrew; pnpm runs through corepack (`corepack pnpm …`, or `corepack enable pnpm` for plain `pnpm`).
 - Phase 2 additions: one `QueryRunner` seam with two adapters — `tauri-plugin-sql` (production, DB file `sqlite:promptforge.db` in app data dir, `PRAGMA foreign_keys = ON`) and better-sqlite3 (dev dependency, tests only). Numbered SQL migrations in `src/db/migrations/` run from TypeScript (`src/db/migrate.ts`) inside transactions, tracked by a `schema_migrations` table with a newer-DB downgrade guard. Folder selection uses `tauri-plugin-dialog`; folder validation/canonicalization uses a read-only Rust `fs_metadata` command (keeps the R5 fs-scope spike in Phase 3). Settings live under the `provider.profiles` settings key (DATA_MODEL.md §1.5 shape); the Phase 1 localStorage stub is imported once, then removed. Removing a project deletes only app-DB rows (cascade); on-disk folders are never touched. pnpm build approval: `pnpm.onlyBuiltDependencies: ["better-sqlite3"]` in package.json.
 - 2026-08-07 · Architecture contract update — `target_provider` replaced with `target_model` + `agent_runtime` + `execution_profile` across both schemas (compiler-output + taskspec). Schema versions: compiler-output → 1.1.0, taskspec → 1.1.0. Four canonical execution profiles defined (deepseek-v4-pro-claude-code primary; qwen-3.8-max-qwen-code; gpt-5.6-sol-high-codex; opus-5-high-claude-code). Profiles control 10 working-style parameters (planning_depth, exploration_budget, context_reuse, reasoning_effort, test_strategy, final_validation, retry_budget, progress_verbosity, autonomy, guardrail_strength) — never task meaning. Renderers renamed: renderQwen→renderQwenCode, renderCodex→no change, renderClaude→renderClaudeCode. AGENTS.md stays shared; runtime-specific instruction files unchanged. DATA_MODEL compilations table: +target_model, +agent_runtime, +execution_profile, +profile_version; task_outcomes: used_provider→used_runtime. All 14 fixtures updated; AJV validation passes.
@@ -53,6 +54,7 @@
 - src/App.tsx · src/screens/{ProjectsScreen,SettingsScreen,OnboardingWizard}.tsx · src/components/ProjectList.tsx
 - src/services/{settingsService,providerService,projectsService,projectFs,repoScan,anchor,consent,profileDraft}.ts · src/schemas/providerProfile.ts · src/ipc/index.ts
 - src/sessions/{types,adapters,executionSessionService}.ts · src/db/repos/executionSessions.ts · src/screens/SessionsScreen.tsx · src/services/projectGuidance.ts
+- src/services/runtimeService.ts · src/db/migrations/0007_runtime_metadata.sql · src-tauri/src/commands/shell.rs
 - src/redaction/blocklist.ts · src/templates/{instructions,contextDocs}.ts
 - src/db/{runner,migrate,appDb,pluginSqlRunner,betterSqliteRunner}.ts · src/db/migrations/{0001_init.sql,0002_fts.sql} · src/db/repos/{projects,settingsRepo,contextDocs}.ts
 - src-tauri/src/{lib,keychain,provider}.rs · src-tauri/src/commands/{keychain,provider,fs}.rs · src-tauri/{tauri.conf.json,Cargo.toml} · src-tauri/capabilities/default.json
@@ -79,10 +81,11 @@
 - 2026-08-10 · Live semantic context refresh validated: source-work fingerprints detect external changes while ignoring generated-only changes; semantic snapshots persist per project; unchanged fingerprints reuse without provider calls; failures remain mechanically handoffable without retry loops. Gates: targeted 56/56; TypeScript 446/446; Rust 66/66; typecheck; production build; macOS `.app` bundle.
 - 2026-08-10 · Committed external-change edge case validated: semantic snapshots retain HEAD A, Continue requests bounded A→B diff evidence for clean HEAD B, extracts committed source paths, refreshes once, and reuses at unchanged B. Targeted: 9 TypeScript + 19 Rust Git tests; typecheck; production build.
 - 2026-08-11 · Session Core productization validated: migration 0006 persists provider-neutral execution sessions plus append-only transcript/checkpoint events; successful TaskSpec persistence creates/reuses a session; runtime adapters preserve canonical knowledge across Claude Code, Codex and Qwen; startup reconciliation marks changed sessions interrupted and safely recovers missing-session TaskSpecs as external; Sessions UI exposes switching, continuation copy, checkpoints, and Rules/Skills inventory. Gates: TypeScript 450/450; typecheck; production build without warnings; Rust 66/66.
+- 2026-08-11 · OpenCode Runtime Integration Foundation validated: OpenCode 1.15.10 is detected through a fixed Rust runtime command; OpenCode start/resume uses structured `--continue`/`--session`/opaque `--model` arguments with no prompt injection; runtime metadata persists separately from canonical TaskSpec/session state; `getExecutionSessionView` exposes status, active runtime/model, progress, live changed files, events and completion/failure for the future VS Code panel. Gates: TypeScript 453/453; typecheck; production build; Rust 71/71.
 
 ## Git checkpoint
 
-- **Latest commit:** `feat(session): add persistent execution core`.
+- **Latest commit:** `feat(opencode): add runtime integration foundation`.
 - **Uncommitted changes:** none.
 
 ## Recent history

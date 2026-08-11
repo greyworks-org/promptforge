@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const runtimeSchema = z.enum(['claude-code', 'qwen-code', 'codex']);
+export const runtimeSchema = z.enum(['claude-code', 'qwen-code', 'codex', 'opencode']);
 export type SessionRuntime = z.infer<typeof runtimeSchema>;
 
 export const sessionStatusSchema = z.enum([
@@ -10,8 +10,21 @@ export const sessionStatusSchema = z.enum([
   'reconciled',
   'completed',
   'external',
+  'failed',
 ]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
+
+/** Opaque runtime/model binding. PromptForge stores identity, not provider-specific state. */
+export const runtimeBindingSchema = z.object({
+  providerId: z.string().nullable(),
+  modelId: z.string().nullable(),
+  modelRef: z.string().nullable(),
+  variant: z.string().nullable(),
+  runtimeSessionId: z.string().nullable(),
+  detectedVersion: z.string().nullable(),
+  capabilities: z.array(z.string()),
+}).strict();
+export type RuntimeBinding = z.infer<typeof runtimeBindingSchema>;
 
 /** Canonical state shared by every runtime adapter. It contains no CLI-specific fields. */
 export const canonicalSessionStateSchema = z.object({
@@ -37,6 +50,8 @@ export const sessionEventKindSchema = z.enum([
   'reconciled',
   'external_recovery',
   'completed',
+  'runtime_launch',
+  'runtime_failure',
 ]);
 export type SessionEventKind = z.infer<typeof sessionEventKindSchema>;
 
@@ -46,6 +61,7 @@ export interface ExecutionSession {
   compilationId: string | null;
   taskId: string | null;
   runtime: SessionRuntime;
+  binding: RuntimeBinding;
   status: SessionStatus;
   state: CanonicalSessionState;
   baseCommit: string | null;
@@ -78,5 +94,17 @@ export function emptySessionState(): CanonicalSessionState {
     relevantFiles: [],
     lastAction: null,
     lastValidation: null,
+  };
+}
+
+export function emptyRuntimeBinding(): RuntimeBinding {
+  return {
+    providerId: null,
+    modelId: null,
+    modelRef: null,
+    variant: null,
+    runtimeSessionId: null,
+    detectedVersion: null,
+    capabilities: [],
   };
 }

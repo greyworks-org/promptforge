@@ -11,6 +11,7 @@ describe('RUNTIME_BINARIES', () => {
     expect(RUNTIME_BINARIES['claude-code']).toBeDefined();
     expect(RUNTIME_BINARIES['qwen-code']).toBeDefined();
     expect(RUNTIME_BINARIES['codex']).toBeDefined();
+    expect(RUNTIME_BINARIES['opencode']).toBeDefined();
   });
 });
 
@@ -25,6 +26,10 @@ describe('resolveBinary', () => {
 
   it('resolves codex → codex', () => {
     expect(resolveBinary('codex')).toEqual({ ok: true, binary: 'codex' });
+  });
+
+  it('resolves opencode → opencode', () => {
+    expect(resolveBinary('opencode')).toEqual({ ok: true, binary: 'opencode' });
   });
 
   it('fails for unknown runtime', () => {

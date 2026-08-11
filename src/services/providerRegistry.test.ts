@@ -26,6 +26,10 @@ describe('resolveExecutionProfile — real combinations', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('OpenCode + API-key provider = valid runtime route', () => {
+    expect(resolveExecutionProfile('opencode', 'Some Provider', 'provider/model')).toMatchObject({ ok: true });
+  });
+
   it('Claude Code + DeepSeek API + deepseek-v4-pro = valid', () => {
     const r = resolveExecutionProfile('claude-code', 'DeepSeek V4 Pro', 'deepseek-v4-pro');
     expect(r.ok).toBe(true);

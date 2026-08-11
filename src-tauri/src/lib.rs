@@ -39,6 +39,8 @@ pub fn run() {
             commands::git::git_inspect,
             commands::shell::open_terminal,
             commands::shell::launch_cli,
+            commands::shell::runtime_status,
+            commands::shell::launch_runtime,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PromptForge");

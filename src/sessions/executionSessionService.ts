@@ -11,15 +11,18 @@ import { getCompilation } from '../services/historyService';
 import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
 import { getProject, listProjects } from '../services/projectsService';
+import { detectRuntime, launchRuntimeProcess, type RuntimeAvailability } from '../services/runtimeService';
 import { adapterFor } from './adapters';
 import {
   emptySessionState,
+  emptyRuntimeBinding,
   runtimeSchema,
   type CanonicalSessionState,
   type ExecutionSession,
   type SessionEvent,
   type SessionEventKind,
   type SessionRuntime,
+  type RuntimeBinding,
 } from './types';
 
 let testRunner: QueryRunner | null = null;
@@ -49,6 +52,10 @@ function initialState(task: TaskSpec | null, memory: MemoryRecord): CanonicalSes
   };
 }
 
+function initialBinding(task: TaskSpec | null): RuntimeBinding {
+  return { ...emptyRuntimeBinding(), modelId: task?.target_model ?? null };
+}
+
 export interface StartSessionInput {
   projectId: string;
   runtime: SessionRuntime;
@@ -56,6 +63,7 @@ export interface StartSessionInput {
   compilation?: CompilationRecord | null;
   memory?: MemoryRecord;
   git?: GitSnapshot;
+  binding?: RuntimeBinding;
 }
 
 export async function startExecutionSession(input: StartSessionInput): Promise<ExecutionSession> {
@@ -67,6 +75,7 @@ export async function startExecutionSession(input: StartSessionInput): Promise<E
     compilationId: input.compilation?.id ?? null,
     taskId: input.task?.task_id ?? null,
     runtime: runtimeSchema.parse(input.runtime),
+    binding: input.binding ?? initialBinding(input.task),
     state: initialState(input.task, memory),
     baseCommit: memory.baseCommit ?? git.head?.hash ?? null,
     lastKnownHead: git.head?.hash ?? null,
@@ -122,7 +131,13 @@ export async function switchSessionRuntime(
   if (session === null) throw new Error('Execution session was not found for this project.');
   const nextRuntime = runtimeSchema.parse(runtime);
   if (session.runtime === nextRuntime) return session;
-  await sessions.update(projectId, sessionId, { runtime: nextRuntime, status: 'active', endedAt: null });
+  const binding: RuntimeBinding = {
+    ...session.binding,
+    runtimeSessionId: null,
+    detectedVersion: null,
+    capabilities: [],
+  };
+  await sessions.update(projectId, sessionId, { runtime: nextRuntime, binding, status: 'active', endedAt: null });
   await appendSessionEvent(projectId, sessionId, 'runtime_switch', `Runtime switched from ${session.runtime} to ${nextRuntime}.`, nextRuntime);
   return (await sessions.getById(projectId, sessionId))!;
 }
@@ -137,19 +152,107 @@ export async function updateSessionState(
   return updated;
 }
 
+export async function updateSessionBinding(
+  projectId: string,
+  sessionId: string,
+  binding: RuntimeBinding,
+): Promise<ExecutionSession> {
+  const updated = await (await repo()).update(projectId, sessionId, { binding });
+  if (updated === null) throw new Error('Execution session was not found for this project.');
+  return updated;
+}
+
 export async function finishExecutionSession(
   projectId: string,
   sessionId: string,
-  status: 'completed' | 'paused' = 'completed',
+  status: 'completed' | 'paused' | 'failed' = 'completed',
 ): Promise<ExecutionSession> {
   const sessions = await repo();
   const updated = await sessions.update(projectId, sessionId, {
     status,
-    endedAt: status === 'completed' ? new Date().toISOString() : null,
+    endedAt: status === 'completed' || status === 'failed' ? new Date().toISOString() : null,
   });
   if (updated === null) throw new Error('Execution session was not found for this project.');
-  await appendSessionEvent(projectId, sessionId, status === 'completed' ? 'completed' : 'checkpoint', `Session ${status}.`, updated.runtime);
+  await appendSessionEvent(projectId, sessionId, status === 'completed' ? 'completed' : status === 'failed' ? 'runtime_failure' : 'checkpoint', `Session ${status}.`, updated.runtime);
   return (await sessions.getById(projectId, sessionId))!;
+}
+
+export interface ExecutionSessionView {
+  session: ExecutionSession;
+  events: SessionEvent[];
+  changedFiles: string[];
+  task: { id: string | null; objective: string };
+  progress: { completed: string[]; pending: string[]; lastAction: string | null };
+  completion: 'active' | 'completed' | 'failed' | 'interrupted';
+}
+
+/** Stable, runtime-independent read model for a future VS Code panel. */
+export async function getExecutionSessionView(projectId: string, sessionId: string): Promise<ExecutionSessionView> {
+  const session = await getExecutionSession(projectId, sessionId);
+  if (session === null) throw new Error('Execution session was not found for this project.');
+  const [events, git] = await Promise.all([
+    listSessionEvents(projectId, sessionId),
+    getGitSnapshot(projectId, session.baseCommit ?? undefined),
+  ]);
+  const changedFiles = [...new Set([
+    ...git.uncommitted.staged,
+    ...git.uncommitted.unstaged,
+    ...git.uncommitted.untracked,
+  ])].sort();
+  const completion = session.status === 'completed' ? 'completed'
+    : session.status === 'failed' ? 'failed'
+      : session.status === 'interrupted' ? 'interrupted' : 'active';
+  return {
+    session,
+    events,
+    changedFiles,
+    task: { id: session.taskId, objective: session.state.objective },
+    progress: {
+      completed: session.state.completed,
+      pending: session.state.pending,
+      lastAction: session.state.lastAction,
+    },
+    completion,
+  };
+}
+
+export async function launchExecutionSessionThroughOpenCode(
+  projectId: string,
+  sessionId: string,
+  mode: 'start' | 'resume',
+): Promise<{ session: ExecutionSession; availability: RuntimeAvailability }> {
+  let session = await getExecutionSession(projectId, sessionId);
+  if (session === null) throw new Error('Execution session was not found for this project.');
+  if (session.runtime !== 'opencode') {
+    session = await switchSessionRuntime(projectId, sessionId, 'opencode');
+  }
+  const availability = await detectRuntime('opencode');
+  if (!availability.installed) {
+    await appendSessionEvent(projectId, sessionId, 'runtime_failure', 'OpenCode is not installed or could not be detected.', 'opencode');
+    await finishExecutionSession(projectId, sessionId, 'failed');
+    throw new Error(availability.error ?? 'OpenCode is not installed.');
+  }
+  try {
+    await launchRuntimeProcess({
+      runtime: 'opencode',
+      projectId,
+      resume: mode === 'resume',
+      externalSessionId: session.binding.runtimeSessionId,
+      modelRef: session.binding.modelRef,
+    });
+    const binding: RuntimeBinding = {
+      ...session.binding,
+      detectedVersion: availability.version,
+      capabilities: availability.capabilities,
+    };
+    session = await updateSessionBinding(projectId, sessionId, binding);
+    await appendSessionEvent(projectId, sessionId, 'runtime_launch', `OpenCode ${mode} requested.`, 'opencode');
+    return { session, availability };
+  } catch (err) {
+    await appendSessionEvent(projectId, sessionId, 'runtime_failure', 'OpenCode could not be launched.', 'opencode');
+    await finishExecutionSession(projectId, sessionId, 'failed');
+    throw err;
+  }
 }
 
 function hasRepositoryEvidence(git: GitSnapshot): boolean {
