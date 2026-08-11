@@ -124,11 +124,13 @@ describe('ProjectsScreen', () => {
   });
 
   it('sets the active project', async () => {
+    const onActiveChanged = vi.fn();
     const deps = makeDeps();
-    render(<ProjectsScreen deps={deps} />);
+    render(<ProjectsScreen deps={deps} onActiveChanged={onActiveChanged} />);
     const betaRow = (await screen.findByText('/tmp/beta')).closest('li') as HTMLElement;
     fireEvent.click(within(betaRow).getByRole('button', { name: 'Set active' }));
     await waitFor(() => expect(deps.setActiveProject).toHaveBeenCalledWith('project-beta'));
+    await waitFor(() => expect(onActiveChanged).toHaveBeenCalledWith('project-beta'));
   });
 
   it('edits project metadata through the inline edit form', async () => {

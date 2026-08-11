@@ -9,9 +9,11 @@ import { setDbForTests as setProjectDb } from '../services/projectsService';
 import {
   appendSessionEvent,
   deriveExecutionSessionControls,
+  ensureExecutionSession,
   getExecutionSession,
   launchExecutionSessionThroughOpenCode,
   listSessionEvents,
+  listExecutionSessions,
   renderSessionContinuation,
   renderSessionTask,
   selectOpenCodeModel,
@@ -83,6 +85,14 @@ beforeEach(async () => {
   await runner.execute(
     `INSERT INTO projects (id, name, repo_path, settings_json, created_at, updated_at) VALUES (?,?,?,'{}',?,?)`,
     ['project-other', 'Other project', '/tmp/other-project', 'now', 'now'],
+  );
+  await runner.execute(
+    `INSERT INTO projects (id, name, repo_path, settings_json, created_at, updated_at) VALUES (?,?,?,'{}',?,?)`,
+    ['project-promptforge', 'PromptForge', '/Users/utku/Desktop/PromptForge', 'now', 'now'],
+  );
+  await runner.execute(
+    `INSERT INTO projects (id, name, repo_path, settings_json, created_at, updated_at) VALUES (?,?,?,'{}',?,?)`,
+    ['project-offerpath', 'Offerpath', '/Users/utku/projects/offerpath', 'now', 'now'],
   );
   setDbForTests(runner);
   setProjectDb(runner);
@@ -212,7 +222,7 @@ describe('execution session continuity', () => {
       projectId: 'project-session', runtime: 'opencode', task, memory, git,
     });
     const second = await startExecutionSession({
-      projectId: 'project-other', runtime: 'opencode', task,
+      projectId: 'project-other', runtime: 'opencode', task: { ...task, project_id: 'project-other' },
       memory: { ...memory, projectId: 'project-other' }, git,
     });
     expect(first.runtimeCwd).toBe('/tmp/session-project');
@@ -241,6 +251,77 @@ describe('execution session continuity', () => {
       '/tmp/session-project',
       '/tmp/other-project',
     ]);
+  });
+
+  it('binds PromptForge and Offerpath identities independently through OpenCode launch', async () => {
+    const promptforge = await startExecutionSession({
+      projectId: 'project-promptforge', runtime: 'opencode',
+      task: { ...task, project_id: 'project-promptforge' },
+      memory: { ...memory, projectId: 'project-promptforge' }, git,
+    });
+    const offerpath = await startExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode',
+      task: { ...task, project_id: 'project-offerpath' },
+      memory: { ...memory, projectId: 'project-offerpath' }, git,
+    });
+
+    expect(promptforge.projectId).toBe('project-promptforge');
+    expect(promptforge.runtimeCwd).toBe('/Users/utku/Desktop/PromptForge');
+    expect(offerpath.projectId).toBe('project-offerpath');
+    expect(offerpath.runtimeCwd).toBe('/Users/utku/projects/offerpath');
+    expect((await getExecutionSession('project-offerpath', offerpath.id))?.runtimeCwd)
+      .toBe('/Users/utku/projects/offerpath');
+
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode', binary: 'opencode', installed: true, canLaunch: true,
+      supportsResume: true, supportsModelRouting: true, version: '1.15.10',
+      capabilities: ['model-routing'], error: null,
+    });
+    vi.spyOn(runtimeService, 'validateRuntimeProject').mockImplementation(async (projectId, boundRoot) => {
+      expect(projectId).toBe('project-offerpath');
+      expect(boundRoot).toBe('/Users/utku/projects/offerpath');
+      return '/Users/utku/projects/offerpath';
+    });
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue({
+      started: true, pid: 1234, exitCode: null, stderr: null,
+    });
+
+    await launchExecutionSessionThroughOpenCode('project-offerpath', offerpath.id, 'start');
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'project-offerpath',
+      projectRoot: '/Users/utku/projects/offerpath',
+    }));
+    expect(launch).not.toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'project-promptforge',
+      projectRoot: '/Users/utku/Desktop/PromptForge',
+    }));
+  });
+
+  it('creates a new uncompiled session instead of reusing a recovered null-compilation session', async () => {
+    const recovered = await startExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode', task: null,
+      memory: { ...memory, projectId: 'project-offerpath' }, git,
+    });
+    const fresh = await ensureExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode', task: null,
+      memory: { ...memory, projectId: 'project-offerpath' }, git,
+    });
+
+    expect(fresh.id).not.toBe(recovered.id);
+    expect(await listExecutionSessions('project-offerpath')).toHaveLength(2);
+  });
+
+  it('rejects cross-project TaskSpec and memory inputs before persistence', async () => {
+    await expect(startExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode', task,
+      memory: { ...memory, projectId: 'project-offerpath' }, git,
+    })).rejects.toThrow("TaskSpec belongs to project 'project-session'");
+
+    await expect(startExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode', task: { ...task, project_id: 'project-offerpath' },
+      memory, git,
+    })).rejects.toThrow("memory belongs to project 'project-session'");
   });
 
   it('blocks a session cwd mismatch before OpenCode execution', async () => {

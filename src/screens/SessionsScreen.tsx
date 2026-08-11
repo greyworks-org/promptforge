@@ -21,6 +21,7 @@ import {
   selectProjectContextDocument,
 } from '../services/projectContextService';
 import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
+import { getProject } from '../services/projectsService';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
   openVscode,
@@ -49,6 +50,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
   const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelDiscovery | null>(null);
+  const [registeredRoot, setRegisteredRoot] = useState<string | null>(null);
   const [vscodeConnection, setVscodeConnection] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,9 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
     setLoading(true);
     setError(null);
     try {
+      const project = await getProject(projectId);
+      if (project === null) throw new Error('The registered project could not be found.');
+      setRegisteredRoot(project.repoPath);
       const reconciled = await reconcileProjectSessions(projectId);
       setSessions(reconciled);
       const nextId = selectedId && reconciled.some((session) => session.id === selectedId)
@@ -251,6 +256,11 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   };
 
   const latestLaunchEvent = [...events].reverse().find((event) => event.kind === 'runtime_launch' || event.kind === 'runtime_failure');
+  const selectedBindingMismatch = selected !== null && (
+    selected.projectId !== projectId
+    || registeredRoot === null
+    || selected.runtimeCwd !== registeredRoot
+  );
 
   return (
     <section className="space-y-5">
@@ -295,7 +305,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 <div>
                   <p className="text-sm font-semibold">{selected.state.objective || 'Recovered task session'}</p>
                   <p className="mt-1 text-xs text-zinc-500">{selected.status} · model {selected.binding.modelId ?? 'runtime default'} · started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Runtime cwd: <code className="font-mono text-zinc-700">{selected.runtimeCwd ?? 'not bound'}</code></p>
+                  <p className="mt-1 text-xs text-zinc-500">Registered project root: <code className="font-mono text-zinc-700">{registeredRoot ?? 'not resolved'}</code></p>
+                  <p className="mt-1 text-xs text-zinc-500">Persisted runtime cwd: <code className="font-mono text-zinc-700">{selected.runtimeCwd ?? 'not bound'}</code></p>
                 </div>
                 <div className="flex gap-1">
                   {runtimes.map((runtime) => (
@@ -328,11 +339,17 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 </div>
               )}
 
+              {selectedBindingMismatch && (
+                <p className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700" role="alert">
+                  Session/project mismatch. Start and Resume are blocked; PromptForge will not rebind this session automatically.
+                </p>
+              )}
+
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
                 <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Open VS Code</button>
-                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selected.runtimeCwd === null} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
-                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selected.runtimeCwd === null} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
                 <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
               </div>

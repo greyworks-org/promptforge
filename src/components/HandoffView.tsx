@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getMemory } from '../services/memoryService';
 import { getGitSnapshot } from '../services/gitState';
-import { getCompilation } from '../services/historyService';
+import { getCompilationForProject } from '../services/historyService';
 import { getProject } from '../services/projectsService';
 import { refreshSemanticContextIfNeeded } from '../services/semanticContext';
 import { assembleSnapshot } from '../handoff/snapshot';
@@ -52,7 +52,7 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
         let currentCompilation: CompilationRecord | null = null;
         if (memory.currentTaskId) {
           try {
-            const comp = await getCompilation(memory.currentTaskId);
+            const comp = await getCompilationForProject(projectId, memory.currentTaskId);
             if (comp?.taskspecJson) {
               currentCompilation = comp;
               currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
@@ -129,7 +129,7 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
         let currentTask: TaskSpec | null = null;
         let currentCompilation: CompilationRecord | null = null;
         if (memory.currentTaskId) {
-          const comp = await getCompilation(memory.currentTaskId);
+          const comp = await getCompilationForProject(projectId, memory.currentTaskId);
           if (comp?.taskspecJson) {
             currentCompilation = comp;
             currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;

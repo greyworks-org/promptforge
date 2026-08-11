@@ -8,7 +8,7 @@ import type { QueryRunner } from '../db/runner';
 import { createProjectContextDocumentsRepository } from '../db/repos/projectContextDocuments';
 import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
-import { getCompilation } from '../services/historyService';
+import { getCompilationForProject } from '../services/historyService';
 import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
 import { getProject, listProjects } from '../services/projectsService';
@@ -80,9 +80,39 @@ export interface StartSessionInput {
   binding?: RuntimeBinding;
 }
 
+function validateSessionInputOwnership(input: StartSessionInput): void {
+  if (input.task !== null && input.task.project_id !== input.projectId) {
+    throw new Error(`Session/project mismatch: TaskSpec belongs to project '${input.task.project_id}', not '${input.projectId}'.`);
+  }
+  if (input.compilation !== undefined && input.compilation !== null && input.compilation.projectId !== input.projectId) {
+    throw new Error(`Session/project mismatch: compilation belongs to project '${input.compilation.projectId}', not '${input.projectId}'.`);
+  }
+  if (input.memory !== undefined && input.memory.projectId !== input.projectId) {
+    throw new Error(`Session/project mismatch: memory belongs to project '${input.memory.projectId}', not '${input.projectId}'.`);
+  }
+}
+
+function validatePersistedSessionBinding(
+  projectId: string,
+  projectRoot: string,
+  session: ExecutionSession,
+  requireBoundRoot = false,
+): void {
+  if (session.projectId !== projectId) {
+    throw new Error(`Session/project mismatch: session belongs to project '${session.projectId}', not '${projectId}'.`);
+  }
+  if (requireBoundRoot && session.runtimeCwd === null) {
+    throw new Error(`OpenCode launch blocked: session for project '${projectId}' has no persisted runtime cwd.`);
+  }
+  if (session.runtimeCwd !== null && session.runtimeCwd !== projectRoot) {
+    throw new Error(`OpenCode launch blocked: session cwd ${session.runtimeCwd ?? 'not bound'} differs from registered project root ${projectRoot}.`);
+  }
+}
+
 export async function startExecutionSession(input: StartSessionInput): Promise<ExecutionSession> {
   const project = await getProject(input.projectId);
   if (project === null) throw new Error('The registered project could not be found.');
+  validateSessionInputOwnership(input);
   const memory = input.memory ?? await getMemory(input.projectId);
   const git = input.git ?? await getGitSnapshot(input.projectId, memory.baseCommit ?? undefined);
   const session = await (await repo()).create({
@@ -111,9 +141,21 @@ export async function listExecutionSessions(projectId: string): Promise<Executio
 
 /** Reuse the persisted session for a compilation instead of creating duplicates. */
 export async function ensureExecutionSession(input: StartSessionInput): Promise<ExecutionSession> {
-  const existing = (await listExecutionSessions(input.projectId))
-    .find((session) => session.compilationId === (input.compilation?.id ?? null));
-  if (existing) return existing;
+  validateSessionInputOwnership(input);
+  const compilationId = input.compilation?.id ?? null;
+  // A session without a compilation is intentionally never reusable. It is
+  // the creation path for a genuinely new handoff/session, so matching NULL
+  // values must not turn it into a recovered session resume.
+  if (compilationId !== null) {
+    const project = await getProject(input.projectId);
+    if (project === null) throw new Error('The registered project could not be found.');
+    const existing = (await listExecutionSessions(input.projectId))
+      .find((session) => session.compilationId === compilationId);
+    if (existing) {
+      validatePersistedSessionBinding(input.projectId, project.repoPath, existing, true);
+      return existing;
+    }
+  }
   return startExecutionSession(input);
 }
 
@@ -252,6 +294,9 @@ export function deriveExecutionSessionControls(session: ExecutionSession, events
 export async function getExecutionSessionView(projectId: string, sessionId: string): Promise<ExecutionSessionView> {
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
+  const project = await getProject(projectId);
+  if (project === null) throw new Error('The registered project could not be found.');
+  validatePersistedSessionBinding(projectId, project.repoPath, session);
   const [events, git, memory, projectContextDocuments] = await Promise.all([
     listSessionEvents(projectId, sessionId),
     getGitSnapshot(projectId, session.baseCommit ?? undefined),
@@ -306,9 +351,7 @@ export async function launchExecutionSessionThroughOpenCode(
   try {
     const project = await getProject(projectId);
     if (project === null) throw new Error('The registered project could not be found.');
-    if (session.runtimeCwd !== null && session.runtimeCwd !== project.repoPath) {
-      throw new Error(`OpenCode launch blocked: session cwd ${session.runtimeCwd} differs from registered project root ${project.repoPath}.`);
-    }
+    validatePersistedSessionBinding(projectId, project.repoPath, session);
     const projectRoot = await validateRuntimeProject(projectId, session.runtimeCwd);
     if (session.runtimeCwd === null) {
       session = await (await repo()).update(projectId, sessionId, { runtimeCwd: projectRoot }) ?? session;
@@ -371,8 +414,8 @@ export async function reconcileProjectSessions(projectId: string): Promise<Execu
 
   // A task compiled before this feature existed is recoverable without a model call.
   if (memory.currentTaskId && !sessions.some((session) => session.compilationId === memory.currentTaskId)) {
-    const compilation = await getCompilation(memory.currentTaskId);
-    if (compilation?.taskspecJson) {
+    const compilation = await getCompilationForProject(projectId, memory.currentTaskId);
+    if (compilation?.projectId === projectId && compilation.taskspecJson) {
       const task = JSON.parse(compilation.taskspecJson) as TaskSpec;
       const git = await getGitSnapshot(projectId, memory.baseCommit ?? undefined);
       const recovered = await startExecutionSession({
@@ -385,6 +428,11 @@ export async function reconcileProjectSessions(projectId: string): Promise<Execu
   }
 
   for (const session of sessions.filter((item) => item.status === 'active')) {
+    if (session.projectId !== projectId || (session.runtimeCwd !== null && session.runtimeCwd !== project.repoPath)) {
+      // Keep a cross-project or stale-cwd session visible for diagnosis, but
+      // do not inspect or reconcile repository state through the wrong root.
+      continue;
+    }
     const git = await getGitSnapshot(projectId, session.baseCommit ?? undefined);
     const changed = session.lastKnownHead !== (git.head?.hash ?? null)
       || git.uncommitted.staged.length > 0

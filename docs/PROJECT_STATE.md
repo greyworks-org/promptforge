@@ -15,8 +15,8 @@
 
 ## Progress
 
-- **Current phase:** Session cwd binding fix complete — every OpenCode start/resume is bound to the registered project root and blocked on root or Git mismatch.
-- **Last validated task:** PromptForge session-control cwd binding fix (2026-08-11) — persisted `execution_sessions.runtime_cwd`, legacy-session backfill during reconciliation, exact registered-root/Git validation before launch, native cwd mismatch guard, explicit OpenCode `projectRoot`, and Sessions cwd display. Gates: focused TypeScript 22/22; root typecheck; Rust shell tests 22/22.
+- **Current phase:** Project→session identity binding fix complete — new/recovered sessions are project-owned, null-compilation sessions are never reused, and OpenCode start/resume remains bound to the registered root.
+- **Last validated task:** PromptForge project→session runtime binding fix (2026-08-11) — project-owned TaskSpec/compilation/memory validation, fresh-session creation without null-binding reuse, project-scoped recovery lookup, mismatch blocking in the Sessions UI/read model, and exact PromptForge/Offerpath launch assertions. Gates: focused TypeScript 21/21; migration tests 9/9; root typecheck; Rust shell tests 22/22; `git diff --check`.
 - **Current task:** none — PromptForge session control-path slice completed (2026-08-11).
 - **Next task:** Handoff history and bounded failure recovery read models — make persisted prepared/failed outcomes discoverable without adding a timeline or changing execution ownership.
 
@@ -60,7 +60,7 @@
 
 - src/App.tsx · src/screens/{ProjectsScreen,SettingsScreen,OnboardingWizard}.tsx · src/components/ProjectList.tsx
 - src/services/{settingsService,providerService,projectsService,projectFs,repoScan,anchor,consent,profileDraft}.ts · src/schemas/providerProfile.ts · src/ipc/index.ts
-- src/sessions/{types,adapters,executionSessionService}.ts · src/db/repos/executionSessions.ts · src/screens/SessionsScreen.tsx · src/services/projectGuidance.ts
+- src/sessions/{types,adapters,executionSessionService}.ts · src/db/repos/executionSessions.ts · src/screens/SessionsScreen.tsx · src/services/projectGuidance.ts · src/services/historyService.ts
 - src/services/runtimeService.ts · src/db/migrations/0007_runtime_metadata.sql · src-tauri/src/commands/shell.rs
 - src/db/migrations/0010_session_runtime_cwd.sql · src/db/repos/executionSessions.ts · src/sessions/{types,executionSessionService}.ts · src/screens/SessionsScreen.tsx
 - src/services/opencodeModels.ts · src/services/opencodeModels.test.ts
@@ -102,16 +102,17 @@
 - 2026-08-11 · VS Code Visual Handoff & Review Layer validated: Handoff was added to the existing session control tree; the loopback bridge now serves canonical model discovery, structured continuation preview, confirmation-gated target creation/launch, and source→target lineage. The review renders bounded evidence sections without the full transcript; preview/confirm integration verifies no pre-confirm launch, one target, exact continuation reuse, source immutability, and existing controls/model orchestration preserved. Targeted: 8/8; final: TypeScript 466/466, root typecheck, extension compile, Rust bridge 4/4, main build, diff check.
 - 2026-08-11 · macOS release OpenCode discovery fix validated: PATH lookup remains supported; `$HOME/.opencode/bin/opencode` is checked only when PATH lookup has no usable executable; executable permission and bounded `--version` success are required. Focused Rust shell tests: 22/22. Tauri macOS release bundle passed.
 - 2026-08-11 · Session control-path slice validated: migration 0009 persists per-session user instructions and project-scoped context-document references; safe relative-path normalization and registered-project metadata checks protect the allowlist; canonical continuation stays separate from the new instruction; OpenCode receives the composed task prompt; actual launch outcomes/errors persist and remain visible; failed launches retain the instruction; native macOS Open VS Code uses the registered project root. Gates: focused TypeScript 27/27; root typecheck; production build; Rust shell 22/22; Rust VS Code bridge 4/4; `git diff --check`. OpenCode capability validation was unchanged from the prior passing run.
-- 2026-08-11 · Session cwd binding fix validated: new and reconciled sessions persist the registered project root, start/resume rejects a bound-root mismatch or non-Git root before execution, Rust verifies the supplied root against the project registry and launches OpenCode with that exact cwd, and two-project regression coverage prevents PromptForge→Offerpath cwd retention. Gates: focused TypeScript 22/22; root typecheck; Rust shell 22/22.
+- 2026-08-11 · Project→session runtime binding fix validated: the registry and active Offerpath selection remain `/Users/utku/projects/offerpath`; session creation rejects cross-project TaskSpec/compilation/memory inputs, never reuses a null-compilation recovered session, project-scopes recovery lookup, and blocks mismatched persisted cwd in UI/read model/launch. PromptForge and Offerpath regressions assert exact project ID, persisted cwd, runtimeService input, and OpenCode root. Gates: focused TypeScript 21/21; migration 9/9; root typecheck; Rust shell 22/22; `git diff --check`.
 
 ## Git checkpoint
 
-- **Latest commit:** `feat(sessions): complete OpenCode control path` (current HEAD).
+- **Latest commit:** `fix(sessions): reject stale cross-project bindings` (current HEAD after commit).
 - **Uncommitted changes:** none.
 
 ## Recent history
 
 - 2026-08-11 · Session control-path slice — persisted session instructions and project context allowlists, composed OpenCode task prompts, explicit launch result/error handling, native macOS VS Code launch, and visible launch feedback.
+- 2026-08-11 · Project→session runtime binding fix — project-owned session inputs, fresh uncompiled session creation, project-scoped recovery, mismatch blocking, and PromptForge/Offerpath cwd regression coverage.
 - 2026-08-11 · OpenCode Provider & Model Orchestration Foundation — sanitized OpenCode model/provider discovery, explicit configured-model fallback, persistent model selection, and selected-model start/resume routing.
 - 2026-08-11 · Cross-Model Handoff & Continuation Layer — explicit bounded source→handoff→new OpenCode target lineage, evidence-aware continuation injection, and duplicate/invalid-target guards.
 - 2026-08-10 · PromptForge v1 committed external-change context edge case — previous semantic HEAD is used for bounded commit-range refresh evidence when the working tree is clean.

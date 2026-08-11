@@ -67,6 +67,12 @@ export async function getCompilation(id: string): Promise<CompilationRecord | nu
   return (await repo()).getById(id);
 }
 
+/** Project-scoped compilation lookup for continuation/session recovery. */
+export async function getCompilationForProject(projectId: string, id: string): Promise<CompilationRecord | null> {
+  const matches = await (await repo()).listByProject(projectId, 1000, 0);
+  return matches.find((compilation) => compilation.id === id) ?? null;
+}
+
 export async function listHistory(
   projectId: string,
   limit = 50,
