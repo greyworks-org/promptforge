@@ -184,6 +184,19 @@ export interface ExecutionSessionView {
   task: { id: string | null; objective: string };
   progress: { completed: string[]; pending: string[]; lastAction: string | null };
   completion: 'active' | 'completed' | 'failed' | 'interrupted';
+  controls: { canStart: boolean; canResume: boolean; canCheckpoint: boolean };
+}
+
+export function deriveExecutionSessionControls(session: ExecutionSession, events: SessionEvent[]): ExecutionSessionView['controls'] {
+  const terminal = session.status === 'completed' || session.status === 'failed';
+  const opencode = session.runtime === 'opencode';
+  const hasLaunch = events.some((event) => event.kind === 'runtime_launch' && event.runtime === 'opencode');
+  return {
+    canStart: opencode && !terminal && !hasLaunch,
+    canResume: opencode && !terminal && hasLaunch
+      && ['paused', 'interrupted', 'reconciled', 'external'].includes(session.status),
+    canCheckpoint: !terminal,
+  };
 }
 
 /** Stable, runtime-independent read model for a future VS Code panel. */
@@ -213,6 +226,7 @@ export async function getExecutionSessionView(projectId: string, sessionId: stri
       lastAction: session.state.lastAction,
     },
     completion,
+    controls: deriveExecutionSessionControls(session, events),
   };
 }
 

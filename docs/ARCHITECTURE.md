@@ -538,17 +538,20 @@ transcript.
 
 ### 11.7 VS Code visual integration
 
-The first VS Code integration is read-only. `getExecutionSessionView` remains
-the sole producer of panel data; `src/services/vscodeIntegration.ts` publishes
-that derived view to an in-memory, loopback-only Rust bridge. The bridge stores
-no canonical state, accepts only `GET` requests, requires a per-launch bearer
-token, and exposes only the selected project/session route. It is transport
-code, not a second session or runtime implementation.
+The VS Code panel consumes `getExecutionSessionView`, which remains the sole
+producer of panel data. `src/services/vscodeIntegration.ts` publishes that
+derived view to an in-memory, loopback-only Rust bridge. The bridge stores no
+canonical state, accepts read-only `GET` requests plus a fixed session-action
+`POST` queue, requires a per-launch bearer token, and exposes only selected
+project/session routes. It is transport code, not a second session or runtime
+implementation.
 
 `vscode-extension/` contributes a small VS Code Tree View. Its extension host
 polls the bridge and validates the returned JSON before displaying status,
-runtime/version, opaque model binding, task/progress, changed files, and recent
-events. PromptForge copies a connection URI from the Sessions screen; the URI
-contains only the loopback endpoint, bridge token, project id, and session id.
-The extension has no write path, runtime launcher, provider access, or
-independent project state.
+runtime/version, opaque model binding, task/progress, changed files, recent
+events, and eligible controls. Start, resume, and checkpoint actions require a
+VS Code confirmation, then enter the bridge queue. The PromptForge webview
+claims the action and calls the existing OpenCode/session services; the
+extension never launches OpenCode, writes SQLite, calls providers, or owns
+independent project state. PromptForge publishes the resulting view and an
+explicit success/failure result.

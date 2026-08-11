@@ -610,17 +610,44 @@ events. The Sessions screen copies a scoped connection URI for the selected
 project/session and refreshes the published view while it is open.
 
 Out of scope: live browser preview, visual element selection, autocomplete or
-Cursor Tab behavior, runtime launch/control actions, duplicated session state,
+Cursor Tab behavior, autonomous/background execution, duplicated session state,
 and optional worktrees.
 
 **Completion condition.** Extension typecheck, connection/bridge unit tests,
 frontend typecheck, full TypeScript tests, Rust tests, and production build
 pass. Manual VS Code installation/connection remains a pre-release check.
 
-**Next recommended phase.** VS Code session control layer: explicit,
-user-confirmed OpenCode start/resume and checkpoint-note actions over a new
-command bridge, while preserving the same canonical PromptForge session and
-read-model boundaries.
+**Phase handoff.** This was followed by the VS Code Session Control Layer,
+which adds confirmation-gated actions while preserving the same canonical
+PromptForge session and read-model boundaries.
+
+## VS Code Session Control Layer
+
+The extension now exposes only three explicit mutating controls: Start Session,
+Resume Session when the canonical read model marks it eligible, and Add
+Checkpoint Note. Each control requires a VS Code confirmation. The extension
+POSTs a fixed, project/session-scoped action to the loopback bridge; it never
+launches OpenCode or accesses the database directly.
+
+PromptForge claims queued actions from the bridge and routes them through the
+existing `launchExecutionSessionThroughOpenCode` and `appendSessionEvent`
+services. It republishes the canonical `getExecutionSessionView` after success
+or failure and returns a bounded success/failure message to the extension.
+The action pump is serialized and performs no work without a queued user
+action.
+
+Out of scope: automatic execution, background autonomy, browser preview,
+visual element selection, autocomplete/Cursor Tab, new runtimes/providers,
+optional worktrees, and Computer Use.
+
+**Completion condition.** Confirmed Start/Resume/Checkpoint actions are routed
+through PromptForge, eligible controls and outcomes are visible in the Session
+Status view, existing read-only integration and runtime adapters remain intact,
+and all tests/typechecks/builds pass.
+
+**Next recommended phase.** VS Code live session observability layer: resilient
+reconnect plus event/progress refresh semantics for the existing canonical
+session view, without adding visual editing or autonomous execution.
 
 ## After Phase 11 (MVP release gate)
 

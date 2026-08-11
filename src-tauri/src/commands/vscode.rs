@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,6 +19,9 @@ struct BridgeStore {
     token: String,
     port: u16,
     views: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    actions: Arc<Mutex<VecDeque<SessionAction>>>,
+    results: Arc<Mutex<HashMap<String, SessionActionResult>>>,
+    next_action_id: Arc<AtomicU64>,
 }
 
 pub struct ReadModelBridge {
@@ -39,6 +43,32 @@ pub struct PublishSessionView {
     pub view: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAction {
+    pub id: String,
+    pub project_id: String,
+    pub session_id: String,
+    pub action: String,
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionActionResult {
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionActionRequest {
+    project_id: String,
+    session_id: String,
+    action: String,
+    note: Option<String>,
+}
+
 impl ReadModelBridge {
     pub fn new() -> Result<Self, String> {
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -51,6 +81,9 @@ impl ReadModelBridge {
             token: make_token(),
             port,
             views: Arc::new(Mutex::new(HashMap::new())),
+            actions: Arc::new(Mutex::new(VecDeque::new())),
+            results: Arc::new(Mutex::new(HashMap::new())),
+            next_action_id: Arc::new(AtomicU64::new(1)),
         };
         let server_store = store.clone();
         thread::Builder::new()
@@ -80,6 +113,74 @@ impl ReadModelBridge {
             .insert(key, bytes);
         Ok(())
     }
+
+    fn queue_action(&self, input: SessionActionRequest) -> Result<SessionAction, String> {
+        validate_id(&input.project_id, "project id")?;
+        validate_id(&input.session_id, "session id")?;
+        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint") {
+            return Err("Unsupported VS Code session action.".into());
+        }
+        if input.note.as_ref().is_some_and(|note| note.len() > 4000) {
+            return Err("Checkpoint note is too long.".into());
+        }
+        if input.action == "checkpoint"
+            && input.note.as_deref().unwrap_or_default().trim().is_empty()
+        {
+            return Err("A non-empty checkpoint note is required.".into());
+        }
+        let action = SessionAction {
+            id: format!(
+                "action-{}",
+                self.store.next_action_id.fetch_add(1, Ordering::Relaxed)
+            ),
+            project_id: input.project_id,
+            session_id: input.session_id,
+            action: input.action,
+            note: input.note,
+        };
+        self.store
+            .actions
+            .lock()
+            .map_err(|_| "The VS Code action bridge is unavailable.".to_string())?
+            .push_back(action.clone());
+        Ok(action)
+    }
+
+    fn take_action(&self) -> Result<Option<SessionAction>, String> {
+        self.store
+            .actions
+            .lock()
+            .map_err(|_| "The VS Code action bridge is unavailable.".to_string())
+            .map(|mut actions| actions.pop_front())
+    }
+
+    fn complete_action(
+        &self,
+        action_id: String,
+        success: bool,
+        message: String,
+    ) -> Result<(), String> {
+        validate_id(&action_id, "action id")?;
+        if message.len() > 1000 {
+            return Err("Session action result is too long.".into());
+        }
+        self.store
+            .results
+            .lock()
+            .map_err(|_| "The VS Code action bridge is unavailable.".to_string())?
+            .insert(
+                action_id,
+                SessionActionResult {
+                    status: if success {
+                        "succeeded".into()
+                    } else {
+                        "failed".into()
+                    },
+                    message,
+                },
+            );
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -101,6 +202,25 @@ pub fn vscode_publish_session_view(
         session_id,
         view,
     })
+}
+
+#[tauri::command]
+pub fn vscode_take_session_action(
+    state: State<'_, crate::AppState>,
+) -> Result<Option<SessionAction>, String> {
+    state.vscode_bridge.take_action()
+}
+
+#[tauri::command]
+pub fn vscode_complete_session_action(
+    state: State<'_, crate::AppState>,
+    action_id: String,
+    success: bool,
+    message: String,
+) -> Result<(), String> {
+    state
+        .vscode_bridge
+        .complete_action(action_id, success, message)
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -169,7 +289,7 @@ fn handle_connection(mut stream: TcpStream, store: &BridgeStore) {
             .eq_ignore_ascii_case("authorization")
             && parts.next().map(str::trim).unwrap_or_default() == format!("Bearer {}", store.token)
     });
-    if method != "GET" {
+    if method != "GET" && method != "POST" {
         write_response(&mut stream, 405, "Method Not Allowed", b"{}");
         return;
     }
@@ -177,20 +297,63 @@ fn handle_connection(mut stream: TcpStream, store: &BridgeStore) {
         write_response(&mut stream, 401, "Unauthorized", b"{}");
         return;
     }
-    let Some((project_id, session_id)) = parse_path(path) else {
-        write_response(&mut stream, 404, "Not Found", b"{}");
+    if method == "POST" && path == "/v1/session-actions" {
+        let raw_body = request.split("\r\n\r\n").nth(1).unwrap_or_default();
+        match serde_json::from_str::<SessionActionRequest>(raw_body)
+            .map_err(|_| "Invalid session action request.".to_string())
+            .and_then(|input| queue_action(store, input))
+        {
+            Ok(action) => write_json_response(
+                &mut stream,
+                202,
+                "Accepted",
+                &serde_json::json!({ "actionId": action.id }),
+            ),
+            Err(message) => write_json_response(
+                &mut stream,
+                400,
+                "Bad Request",
+                &serde_json::json!({ "message": message }),
+            ),
+        }
         return;
-    };
-    let key = format!("{}:{}", project_id, session_id);
-    let body = store
-        .views
-        .lock()
-        .ok()
-        .and_then(|views| views.get(&key).cloned());
-    match body {
-        Some(body) => write_response(&mut stream, 200, "OK", &body),
-        None => write_response(&mut stream, 404, "Not Found", b"{}"),
     }
+    if method == "GET" {
+        if let Some(action_id) = parse_action_path(path) {
+            let result = store
+                .results
+                .lock()
+                .ok()
+                .and_then(|results| results.get(action_id).cloned())
+                .unwrap_or(SessionActionResult {
+                    status: "pending".into(),
+                    message: "PromptForge is processing the action.".into(),
+                });
+            write_json_response(&mut stream, 200, "OK", &result);
+            return;
+        }
+        if let Some((project_id, session_id)) = parse_path(path) {
+            let key = format!("{}:{}", project_id, session_id);
+            let body = store
+                .views
+                .lock()
+                .ok()
+                .and_then(|views| views.get(&key).cloned());
+            match body {
+                Some(body) => write_response(&mut stream, 200, "OK", &body),
+                None => write_response(&mut stream, 404, "Not Found", b"{}"),
+            }
+            return;
+        }
+    }
+    write_response(&mut stream, 404, "Not Found", b"{}");
+}
+
+fn queue_action(store: &BridgeStore, input: SessionActionRequest) -> Result<SessionAction, String> {
+    let bridge = ReadModelBridge {
+        store: store.clone(),
+    };
+    bridge.queue_action(input)
 }
 
 fn parse_path(path: &str) -> Option<(&str, &str)> {
@@ -201,6 +364,22 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
     validate_id(parts[3], "project id").ok()?;
     validate_id(parts[4], "session id").ok()?;
     Some((parts[3], parts[4]))
+}
+
+fn parse_action_path(path: &str) -> Option<&str> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() != 4 || parts[1] != "v1" || parts[2] != "session-actions" {
+        return None;
+    }
+    validate_id(parts[3], "action id").ok()?;
+    Some(parts[3])
+}
+
+fn write_json_response<T: Serialize>(stream: &mut TcpStream, status: u16, reason: &str, body: &T) {
+    match serde_json::to_vec(body) {
+        Ok(bytes) => write_response(stream, status, reason, &bytes),
+        Err(_) => write_response(stream, 500, "Internal Server Error", b"{}"),
+    }
 }
 
 fn write_response(stream: &mut TcpStream, status: u16, reason: &str, body: &[u8]) {
@@ -231,6 +410,9 @@ mod tests {
                 token: "test-token".into(),
                 port: 0,
                 views: Arc::new(Mutex::new(HashMap::new())),
+                actions: Arc::new(Mutex::new(VecDeque::new())),
+                results: Arc::new(Mutex::new(HashMap::new())),
+                next_action_id: Arc::new(AtomicU64::new(1)),
             },
         };
         bridge
@@ -248,5 +430,63 @@ mod tests {
             .get("project-1:session-1")
             .cloned();
         assert_eq!(body, Some(br#"{"status":"active"}"#.to_vec()));
+    }
+
+    #[test]
+    fn action_queue_accepts_only_supported_scoped_actions() {
+        let bridge = test_bridge();
+        let action = bridge
+            .queue_action(SessionActionRequest {
+                project_id: "project-1".into(),
+                session_id: "session-1".into(),
+                action: "checkpoint".into(),
+                note: Some("Validated the current state.".into()),
+            })
+            .expect("action queues");
+        assert_eq!(action.id, "action-1");
+        assert_eq!(
+            bridge
+                .take_action()
+                .expect("take succeeds")
+                .map(|item| item.action),
+            Some("checkpoint".into())
+        );
+        assert!(bridge
+            .queue_action(SessionActionRequest {
+                project_id: "project-1".into(),
+                session_id: "session-1".into(),
+                action: "launch-shell".into(),
+                note: None,
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn action_completion_returns_explicit_success_or_failure() {
+        let bridge = test_bridge();
+        bridge
+            .complete_action("action-1".into(), true, "Checkpoint note saved.".into())
+            .expect("completion succeeds");
+        let result = bridge
+            .store
+            .results
+            .lock()
+            .expect("result lock")
+            .get("action-1")
+            .cloned();
+        assert_eq!(result.map(|item| item.status), Some("succeeded".into()));
+    }
+
+    fn test_bridge() -> ReadModelBridge {
+        ReadModelBridge {
+            store: BridgeStore {
+                token: "test-token".into(),
+                port: 0,
+                views: Arc::new(Mutex::new(HashMap::new())),
+                actions: Arc::new(Mutex::new(VecDeque::new())),
+                results: Arc::new(Mutex::new(HashMap::new())),
+                next_action_id: Arc::new(AtomicU64::new(1)),
+            },
+        }
     }
 }

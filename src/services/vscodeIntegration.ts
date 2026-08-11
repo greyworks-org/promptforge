@@ -1,6 +1,8 @@
 import { invokeIpc } from '../ipc';
 import {
+  appendSessionEvent,
   getExecutionSessionView,
+  launchExecutionSessionThroughOpenCode,
   type ExecutionSessionView,
 } from '../sessions/executionSessionService';
 
@@ -14,6 +16,18 @@ export interface VscodeConnection {
   token: string;
   projectId: string;
   sessionId: string;
+}
+
+export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint';
+
+let processingVscodeAction = false;
+
+interface VscodeSessionActionRequest {
+  id: string;
+  projectId: string;
+  sessionId: string;
+  action: VscodeSessionAction;
+  note: string | null;
 }
 
 export async function getVscodeConnection(projectId: string, sessionId: string): Promise<VscodeConnection> {
@@ -38,6 +52,44 @@ export async function publishVscodeSessionView(
     sessionId,
     view: nextView,
   });
+}
+
+/** Claims one explicitly requested action for PromptForge-side execution. */
+export async function processVscodeSessionAction(): Promise<void> {
+  if (processingVscodeAction) return;
+  processingVscodeAction = true;
+  let action: VscodeSessionActionRequest | null = null;
+  try {
+    action = await invokeIpc<VscodeSessionActionRequest | null>('vscode_take_session_action');
+    if (action === null) return;
+    const view = await getExecutionSessionView(action.projectId, action.sessionId);
+    if (action.action === 'checkpoint') {
+      const note = action.note?.trim() ?? '';
+      if (!view.controls.canCheckpoint || note === '') throw new Error('A non-empty checkpoint note is required.');
+      await appendSessionEvent(action.projectId, action.sessionId, 'user_note', note, view.session.runtime);
+    } else {
+      if (action.action === 'start' && !view.controls.canStart) throw new Error('This OpenCode session is not eligible to start.');
+      if (action.action === 'resume' && !view.controls.canResume) throw new Error('This OpenCode session is not eligible to resume.');
+      await launchExecutionSessionThroughOpenCode(action.projectId, action.sessionId, action.action);
+    }
+    await publishVscodeSessionView(action.projectId, action.sessionId);
+    await invokeIpc('vscode_complete_session_action', {
+      actionId: action.id,
+      success: true,
+      message: action.action === 'checkpoint' ? 'Checkpoint note saved.' : `OpenCode session ${action.action} requested.`,
+    });
+  } catch (error) {
+    if (action !== null) {
+      try { await publishVscodeSessionView(action.projectId, action.sessionId); } catch { /* preserve the action error */ }
+      await invokeIpc('vscode_complete_session_action', {
+        actionId: action.id,
+        success: false,
+        message: error instanceof Error ? error.message : 'PromptForge could not complete the session action.',
+      });
+    }
+  } finally {
+    processingVscodeAction = false;
+  }
 }
 
 export function formatVscodeConnection(connection: VscodeConnection): string {

@@ -12,7 +12,9 @@ declare module 'vscode' {
     label: string;
     description?: string;
     tooltip?: string;
+    command?: Command;
   }
+  export interface Command { command: string; title: string; arguments?: unknown[] }
   export interface TreeDataProvider<T> {
     readonly onDidChangeTreeData?: Event<T | undefined | null | void>;
     getTreeItem(element: T): TreeItem;
@@ -25,6 +27,7 @@ declare module 'vscode' {
     function showInputBox(options: { prompt: string; password?: boolean; ignoreFocusOut?: boolean }): PromiseLike<string | undefined>;
     function showErrorMessage(message: string): PromiseLike<string | undefined>;
     function showInformationMessage(message: string): PromiseLike<string | undefined>;
+    function showWarningMessage(message: string, options: { modal?: boolean }, ...items: string[]): PromiseLike<string | undefined>;
   }
   export namespace commands {
     function registerCommand(command: string, callback: (...args: unknown[]) => unknown): Disposable;

@@ -7,6 +7,7 @@ import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
 import {
   appendSessionEvent,
+  deriveExecutionSessionControls,
   getExecutionSession,
   listSessionEvents,
   renderSessionContinuation,
@@ -82,6 +83,26 @@ afterEach(async () => {
 });
 
 describe('execution session continuity', () => {
+  it('exposes safe OpenCode control eligibility from canonical state and events', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    expect(deriveExecutionSessionControls(created, []).canStart).toBe(true);
+    const launch = {
+      id: 'event-launch',
+      sessionId: created.id,
+      projectId: created.projectId,
+      kind: 'runtime_launch' as const,
+      runtime: 'opencode' as const,
+      content: 'OpenCode start requested.',
+      metadata: {},
+      createdAt: '2026-08-11T00:00:00Z',
+    };
+    expect(deriveExecutionSessionControls(created, [launch]).canStart).toBe(false);
+    expect(deriveExecutionSessionControls({ ...created, status: 'paused' }, [launch]).canResume).toBe(true);
+    expect(deriveExecutionSessionControls({ ...created, status: 'completed' }, [launch]).canCheckpoint).toBe(false);
+  });
+
   it('persists canonical state and transcript across runtime switching', async () => {
     const created = await startExecutionSession({
       projectId: 'project-session', runtime: 'claude-code', task, memory, git,

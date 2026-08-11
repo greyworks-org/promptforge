@@ -1,7 +1,7 @@
 {
   "name": "promptforge-vscode",
   "displayName": "PromptForge Session",
-  "description": "Read-only PromptForge session status for VS Code.",
+  "description": "PromptForge session status and explicitly confirmed controls for VS Code.",
   "version": "0.1.0",
   "publisher": "promptforge",
   "license": "UNLICENSED",
@@ -20,6 +20,18 @@
       {
         "command": "promptforge.refresh",
         "title": "PromptForge: Refresh Session"
+      },
+      {
+        "command": "promptforge.startSession",
+        "title": "PromptForge: Start Session"
+      },
+      {
+        "command": "promptforge.resumeSession",
+        "title": "PromptForge: Resume Session"
+      },
+      {
+        "command": "promptforge.addCheckpointNote",
+        "title": "PromptForge: Add Checkpoint Note"
       }
     ],
     "configuration": {
