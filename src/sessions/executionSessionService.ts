@@ -253,6 +253,7 @@ export async function launchExecutionSessionThroughOpenCode(
   projectId: string,
   sessionId: string,
   mode: 'start' | 'resume',
+  continuationPrompt?: string | null,
 ): Promise<{ session: ExecutionSession; availability: RuntimeAvailability }> {
   let session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
@@ -272,6 +273,7 @@ export async function launchExecutionSessionThroughOpenCode(
       resume: mode === 'resume',
       externalSessionId: session.binding.runtimeSessionId,
       modelRef: session.binding.modelRef,
+      continuationPrompt: continuationPrompt ?? null,
     });
     const binding: RuntimeBinding = {
       ...session.binding,

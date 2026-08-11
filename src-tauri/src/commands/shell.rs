@@ -283,6 +283,7 @@ fn runtime_args(
     resume: bool,
     external_session_id: Option<String>,
     model_ref: Option<String>,
+    continuation_prompt: Option<String>,
 ) -> Result<Vec<String>, String> {
     if runtime != "opencode" {
         return Ok(Vec::new());
@@ -302,11 +303,17 @@ fn runtime_args(
         }
         args.extend(["--model".into(), model]);
     }
+    if let Some(prompt) = continuation_prompt {
+        if prompt.len() > 65536 {
+            return Err("OpenCode continuation prompt is too large.".into());
+        }
+        args.extend(["--prompt".into(), prompt]);
+    }
     Ok(args)
 }
 
-/// Launches a known runtime with only fixed, structured OpenCode flags.
-/// PromptForge never injects task text into this process.
+/// Launches a known runtime with fixed, structured OpenCode flags and an
+/// optional explicit bounded continuation prompt.
 #[tauri::command]
 pub fn launch_runtime(
     runtime: String,
@@ -314,6 +321,7 @@ pub fn launch_runtime(
     resume: bool,
     external_session_id: Option<String>,
     model_ref: Option<String>,
+    continuation_prompt: Option<String>,
 ) -> Result<(), String> {
     let cwd = PathBuf::from(&project_root);
     if !cwd.is_dir() {
@@ -322,7 +330,7 @@ pub fn launch_runtime(
     let binary = runtime_binary(&runtime).ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let mut command = Command::new(binary);
     command.current_dir(&cwd);
-    command.args(runtime_args(&runtime, resume, external_session_id, model_ref)?);
+    command.args(runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?);
 
     command.spawn().map_err(|error| format!("Could not launch {}: {}", binary, error))?;
     Ok(())
@@ -471,6 +479,7 @@ mod tests {
             true,
             Some("session; rm -rf /".into()),
             None,
+            None,
         ).unwrap_err();
         assert!(err.contains("Unsafe OpenCode session"));
     }
@@ -483,16 +492,30 @@ mod tests {
             false,
             None,
             Some("provider/model --danger".into()),
+            None,
         ).unwrap_err();
         assert!(err.contains("Unsafe OpenCode model"));
     }
 
     #[test]
     fn runtime_args_support_start_resume_and_model_routing() {
-        assert_eq!(runtime_args("opencode", false, None, None).unwrap(), Vec::<String>::new());
-        assert_eq!(runtime_args("opencode", true, None, None).unwrap(), vec!["--continue".to_string()]);
-        assert_eq!(runtime_args("opencode", true, Some("ses_123".into()), Some("anthropic/claude-sonnet".into())).unwrap(), vec![
+        assert_eq!(runtime_args("opencode", false, None, None, None).unwrap(), Vec::<String>::new());
+        assert_eq!(runtime_args("opencode", true, None, None, None).unwrap(), vec!["--continue".to_string()]);
+        assert_eq!(runtime_args("opencode", true, Some("ses_123".into()), Some("anthropic/claude-sonnet".into()), None).unwrap(), vec![
             "--session".to_string(), "ses_123".to_string(), "--model".to_string(), "anthropic/claude-sonnet".to_string(),
         ]);
+    }
+
+    #[test]
+    fn runtime_args_support_optional_continuation_prompt() {
+        assert_eq!(runtime_args("opencode", false, None, Some("provider/model".into()), Some("Continue this task.".into())).unwrap(), vec![
+            "--model".to_string(), "provider/model".to_string(), "--prompt".to_string(), "Continue this task.".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn runtime_args_reject_oversized_continuation_prompt() {
+        let err = runtime_args("opencode", false, None, None, Some("x".repeat(65537))).unwrap_err();
+        assert!(err.contains("too large"));
     }
 }

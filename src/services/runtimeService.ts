@@ -26,9 +26,10 @@ export interface LaunchRuntimeInput {
   resume: boolean;
   externalSessionId: string | null;
   modelRef: string | null;
+  continuationPrompt?: string | null;
 }
 
-/** Launches a fixed runtime binary in the registered project root. No prompt text is injected. */
+/** Launches a fixed runtime binary in the registered project root. Continuation text is optional and explicit. */
 export async function launchRuntimeProcess(input: LaunchRuntimeInput): Promise<void> {
   const projectRoot = await resolveProjectRoot(input.projectId);
   await invokeIpc('launch_runtime', {
@@ -37,5 +38,6 @@ export async function launchRuntimeProcess(input: LaunchRuntimeInput): Promise<v
     resume: input.resume,
     externalSessionId: input.externalSessionId,
     modelRef: input.modelRef,
+    continuationPrompt: input.continuationPrompt ?? null,
   });
 }

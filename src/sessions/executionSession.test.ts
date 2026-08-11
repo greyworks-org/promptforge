@@ -187,6 +187,7 @@ describe('execution session continuity', () => {
       resume: true,
       externalSessionId: null,
       modelRef: 'openrouter/deepseek/deepseek-v4-pro',
+      continuationPrompt: null,
     }));
   });
 });
