@@ -649,6 +649,21 @@ and all tests/typechecks/builds pass.
 reconnect plus event/progress refresh semantics for the existing canonical
 session view, without adding visual editing or autonomous execution.
 
+## OpenCode Shared Qwen-MM Core Capability
+
+This bounded integration registers Qwen-MM Core through OpenCode's native
+project MCP configuration and skill discovery. It adds no PromptForge
+transport, provider profile, API-key path, compiler dependency, session field,
+or custom capability registry. The local-only `read_image` tool is available
+across OpenCode model sessions and is invoked only when the agent needs visual
+understanding; its structured MCP result contains the resized image and a
+resolution summary.
+
+The targeted validation launches the upstream stdio server against a local PNG,
+checks that `read_image` is advertised, and verifies the returned content has
+both text and image parts. Cloud/API Qwen capabilities are intentionally out of
+scope.
+
 ## After Phase 11 (MVP release gate)
 
 - Execute `MVP_SCOPE.md` §4 definition-of-done end-to-end on two real

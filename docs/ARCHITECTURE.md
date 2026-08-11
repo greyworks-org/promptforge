@@ -555,3 +555,20 @@ claims the action and calls the existing OpenCode/session services; the
 extension never launches OpenCode, writes SQLite, calls providers, or owns
 independent project state. PromptForge publishes the resulting view and an
 explicit success/failure result.
+
+### 11.8 OpenCode shared Qwen-MM Core capability
+
+OpenCode's native project MCP configuration (`opencode.json`) registers the
+upstream `qwen-mm-plugins-core` server through `uvx`; `.opencode/skills/`
+contains only the capability instructions needed for the agent to discover
+its tools. This is OpenCode infrastructure, not a PromptForge plugin registry
+or compiler/provider dependency. The core profile is local-only and requires
+no API key.
+
+The capability is available to any model in the OpenCode session, but its tools
+are called only when visual understanding is needed. `read_image` returns the
+Qwen-MM structured image summary plus an image attachment through MCP, so the
+requesting model receives the result without PromptForge transporting image
+bytes, injecting context, or creating a second session state. Normal text-only
+sessions and the Claude Code, Codex and Qwen Code paths are unchanged. Cloud
+Qwen visual APIs remain separate capabilities and are not configured here.

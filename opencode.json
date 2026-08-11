@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "qwen-mm-plugins-core": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--from",
+        "qwen-mm-plugins[core] @ git+https://github.com/QwenLM/Qwen-MM-Plugins.git@main",
+        "qwen-mm-plugins-core"
+      ],
+      "enabled": true
+    }
+  }
+}
