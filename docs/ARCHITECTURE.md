@@ -510,3 +510,22 @@ outcome + constraints; Claude: plan-first + risk emphasis).
   (snapshot assembly validates id consistency and throws otherwise).
 - Memory and handoff prompts never contain secrets: they are built from
   memory fields, TaskSpec text, and git *metadata* (paths/stats) only.
+
+### 11.6 Session Core
+
+`src/sessions/types.ts` defines the canonical `ExecutionSession` state and
+append-only event kinds. `src/db/repos/executionSessions.ts` persists them
+in the central SQLite database; no runtime-specific transcript files are
+written into target repositories. `src/sessions/adapters.ts` contains the
+Claude Code, Codex and Qwen Code adapters. Adapters differ only in the
+instruction-file preamble and continuation wording; they consume the same
+session state and recent local events.
+
+`executionSessionService` creates or reuses a session when a canonical
+TaskSpec is persisted, records local checkpoints, switches runtimes, and
+reconciles active sessions on app startup using live Git evidence. A
+recovered external session is explicitly marked `external` and carries a
+reason; it never claims that an unavailable transcript was recovered. The
+Sessions screen exposes the state, continuation prompt, local checkpoint
+events, runtime switch and read-only Rules/Skills inventory. The existing
+handoff fallback remains model-free when there is no session transcript.

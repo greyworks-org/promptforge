@@ -7,6 +7,7 @@ import { recordCompilation } from '../services/historyService';
 import { recordCompileSuccess } from '../services/memoryService';
 import { listProfiles } from '../services/settingsService';
 import { resolveExecutionProfile } from '../services/providerRegistry';
+import { ensureExecutionSession } from '../sessions/executionSessionService';
 
 /**
  * Compiler screen (Phase 6).
@@ -142,6 +143,12 @@ export function CompilerScreen({
           // project_memory.current_task_id references compilations.id. The
           // TaskSpec's TASK-* id is preserved inside taskspec_json.
           await recordCompileSuccess(activeProjectId, compilation.id);
+          await ensureExecutionSession({
+            projectId: activeProjectId,
+            runtime: result.taskSpec.agent_runtime,
+            task: result.taskSpec,
+            compilation,
+          });
         } catch (err) {
           setError(`Compilation succeeded but could not be persisted: ${err instanceof Error ? err.message : String(err)}`);
         }

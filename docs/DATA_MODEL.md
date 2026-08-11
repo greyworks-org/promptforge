@@ -159,6 +159,29 @@ The keychain account name is stored; the secret itself never is. Multiple
 profiles are structurally supported now (UI may expose only one in MVP);
 this is the extension seam for future providers.
 
+### 1.7 `execution_sessions` and `session_events` — Session Core
+
+Migration `0006_execution_sessions.sql` adds the persistent local execution
+layer. `execution_sessions` is one provider-neutral session record per task
+run; `runtime` selects the current adapter, but `state_json` contains only
+canonical task knowledge (objective, completed/pending work, decisions,
+blockers, relevant files and checkpoints). `session_events` is append-only
+local transcript/checkpoint knowledge. Both tables carry `project_id` and
+are deleted with their project; every repository read and write is scoped by
+project ID.
+
+Runtime adapters for Claude Code, Codex and Qwen Code render the same
+canonical state and recent events into runtime-specific continuation prompts.
+Switching runtime updates the session and records a `runtime_switch` event;
+it never creates provider-specific state. On startup, active sessions are
+reconciled against a live Git snapshot. Repository changes become an
+`interrupted` session with a recovery event; unchanged sessions become
+`reconciled`. If project memory contains a current persisted TaskSpec but no
+session row (for example, work began before Session Core), PromptForge
+creates an `external` recovery session without an AI call or filesystem
+write. The existing deterministic handoff remains the fallback when no
+transcript is available.
+
 ### 1.6 `project_memory` — the central per-project memory record
 
 One row per registered project (created at onboarding). Provider-neutral:

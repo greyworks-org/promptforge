@@ -11,22 +11,28 @@ import { renderHandoffQwenCode } from '../handoff/renderQwenCode';
 import { renderHandoffCodex } from '../handoff/renderCodex';
 import type { TaskSpec } from '../schemas/taskspec';
 import type { CompilationRecord } from '../db/repos/compilations';
+import type { HandoffSnapshot } from '../handoff/snapshot';
+import { ensureExecutionSession } from '../sessions/executionSessionService';
 
 export interface HandoffViewProps {
   projectId: string;
   projectName: string;
   onClose: () => void;
+  onSessions?: (projectId: string, projectName: string) => void;
 }
 
 type Runtime = 'claude-code' | 'qwen-code' | 'codex';
 
-export function HandoffView({ projectId, projectName, onClose }: HandoffViewProps) {
+export function HandoffView({ projectId, projectName, onClose, onSessions }: HandoffViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<Runtime>('codex');
   const [output, setOutput] = useState<string>('');
   const [progressSummary, setProgressSummary] = useState<string>('');
   const [contextStatus, setContextStatus] = useState<string>('Updating project context…');
+  const [snapshot, setSnapshot] = useState<HandoffSnapshot | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +83,7 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
           currentTask,
           currentCompilation,
         });
+        setSnapshot(snap);
         if (cancelled) return;
 
         const progress = classifyProgress(snap);
@@ -141,6 +148,24 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
     })();
   };
 
+  const startPersistentSession = async () => {
+    if (!snapshot) return;
+    try {
+      const session = await ensureExecutionSession({
+        projectId,
+        runtime,
+        task: snapshot.currentTask,
+        compilation: snapshot.currentCompilation,
+        memory: snapshot.memory,
+        git: snapshot.git,
+      });
+      setSessionId(session.id);
+      setSessionMessage(`Persistent session started (${session.id.slice(0, 20)}…).`);
+    } catch (err) {
+      setSessionMessage(err instanceof Error ? err.message : 'Could not start a persistent session.');
+    }
+  };
+
   const tabClass = (rt: Runtime) =>
     `rounded-t-md px-3 py-1.5 text-xs font-medium ${
       runtime === rt
@@ -167,6 +192,18 @@ export function HandoffView({ projectId, projectName, onClose }: HandoffViewProp
 
       {!loading && !error && (
         <>
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs">
+            <span className="text-zinc-600">Session Core</span>
+            {sessionId ? (
+              <>
+                <span className="text-emerald-700">Persistent session active.</span>
+                {onSessions && <button type="button" onClick={() => onSessions(projectId, projectName)} className="underline">Open Sessions</button>}
+              </>
+            ) : (
+              <button type="button" onClick={() => void startPersistentSession()} className="rounded border border-zinc-300 bg-white px-2 py-1 font-medium">Start persistent session</button>
+            )}
+            {sessionMessage && <span className="text-zinc-500">{sessionMessage}</span>}
+          </div>
           <div className="flex gap-1 border-b border-zinc-200">
             {(['codex', 'claude-code', 'qwen-code'] as Runtime[]).map((rt) => (
               <button key={rt} onClick={() => handleRuntimeChange(rt)} className={tabClass(rt)}>

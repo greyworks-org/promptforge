@@ -3,6 +3,7 @@ import initSql from './migrations/0001_init.sql?raw';
 import compilationsFixSql from './migrations/0003_compilations_fix.sql?raw';
 import projectMemorySql from './migrations/0004_project_memory.sql?raw';
 import semanticContextSql from './migrations/0005_semantic_context.sql?raw';
+import executionSessionsSql from './migrations/0006_execution_sessions.sql?raw';
 
 export interface Migration {
   version: number;
@@ -16,6 +17,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 3, name: '0003_compilations_fix', sql: compilationsFixSql },
   { version: 4, name: '0004_project_memory', sql: projectMemorySql },
   { version: 5, name: '0005_semantic_context', sql: semanticContextSql },
+  { version: 6, name: '0006_execution_sessions', sql: executionSessionsSql },
 ];
 
 export interface MigrationReport {

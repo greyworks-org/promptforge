@@ -18,6 +18,7 @@ export interface ProjectListProps {
   onConfirmRemove: (projectId: string) => void;
   onCancelRemove: () => void;
   onContinue?: (projectId: string, projectName: string) => void;
+  onSessions?: (projectId: string, projectName: string) => void;
 }
 
 const secondaryButton =
@@ -152,6 +153,16 @@ export function ProjectList(props: ProjectListProps) {
                       disabled={busy}
                     >
                       Continue
+                    </button>
+                  )}
+                  {isActive && props.onSessions && (
+                    <button
+                      type="button"
+                      className={secondaryButton}
+                      onClick={() => props.onSessions!(project.id, project.name)}
+                      disabled={busy}
+                    >
+                      Sessions
                     </button>
                   )}
                   <button

@@ -29,6 +29,8 @@ export interface ProjectsScreenProps {
   onStartOnboarding?: (projectId?: string) => void;
   /** Callback to generate a handoff for an existing project. */
   onContinue?: (projectId: string, projectName: string) => void;
+  /** Callback to open persistent execution sessions for an existing project. */
+  onSessions?: (projectId: string, projectName: string) => void;
   onActiveChanged?: (projectId: string) => void;
 }
 
@@ -46,7 +48,7 @@ function friendlyError(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
-export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onActiveChanged }: ProjectsScreenProps) {
+export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onSessions, onActiveChanged }: ProjectsScreenProps) {
   const list = deps?.listProjects ?? listProjects;
   const register = deps?.registerProject ?? registerProject;
   const update = deps?.updateProject ?? updateProject;
@@ -349,6 +351,7 @@ export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onActiveCh
             confirmingRemoveId={confirmingRemoveId}
             onSetActive={(id) => void onSetActive(id)}
             onContinue={onContinue}
+            onSessions={onSessions}
             onStartEdit={onStartEdit}
             onEditNameChange={setEditName}
             onEditMilestoneChange={setEditMilestone}

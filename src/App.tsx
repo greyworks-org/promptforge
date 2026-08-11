@@ -6,11 +6,13 @@ import { CompilerScreen } from './screens/CompilerScreen';
 import { ResultScreen } from './screens/ResultScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { HandoffView } from './components/HandoffView';
+import { SessionsScreen } from './screens/SessionsScreen';
+import { reconcileAllProjects } from './sessions/executionSessionService';
 import type { TaskSpec } from './schemas/taskspec';
 import { PROFILES } from './profiles/registry';
 import { getActiveProjectId } from './services/projectsService';
 
-type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history' | 'handoff';
+type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history' | 'handoff' | 'sessions';
 
 function tabClass(active: boolean): string {
   return `rounded-md px-3 py-1 text-sm font-medium ${
@@ -29,6 +31,7 @@ export default function App() {
 
   useEffect(() => {
     getActiveProjectId().then((id) => { if (id) setActiveProjectId(id); }).catch(() => {});
+    void reconcileAllProjects();
   }, []);
 
   return (
@@ -66,6 +69,11 @@ export default function App() {
               setHandoffProjectName(projectName);
               setScreen('handoff');
             }}
+            onSessions={(projectId, projectName) => {
+              setActiveProjectId(projectId);
+              setHandoffProjectName(projectName);
+              setScreen('sessions');
+            }}
             onActiveChanged={(projectId) => setActiveProjectId(projectId)}
           />
         )}
@@ -102,6 +110,18 @@ export default function App() {
         )}
         {screen === 'handoff' && activeProjectId && (
           <HandoffView
+            projectId={activeProjectId}
+            projectName={handoffProjectName || activeProjectId}
+            onClose={() => setScreen('projects')}
+            onSessions={(projectId, projectName) => {
+              setActiveProjectId(projectId);
+              setHandoffProjectName(projectName);
+              setScreen('sessions');
+            }}
+          />
+        )}
+        {screen === 'sessions' && activeProjectId && (
+          <SessionsScreen
             projectId={activeProjectId}
             projectName={handoffProjectName || activeProjectId}
             onClose={() => setScreen('projects')}

@@ -15,8 +15,8 @@
 
 ## Progress
 
-- **Current phase:** MVP v1 complete — all 11 phases implemented, release hardened, product polished.
-- **Last validated task:** MVP v1 committed external-change context edge case (2026-08-10) — prior semantic HEAD drives bounded commit-range evidence for clean HEAD changes; targeted tests, typecheck, and production build passed; manual golden-path UI test remains for the user.
+- **Current phase:** MVP v1 + Session Core productization complete — persistent local execution continuity is release-gated; optional worktrees remain deferred.
+- **Last validated task:** Session Core productization (2026-08-11) — canonical SQLite-backed ExecutionSession state/events, Claude Code/Codex/Qwen adapters, restart reconciliation, safe external-session recovery, runtime switching, Sessions UX, and read-only Rules/Skills visibility; TypeScript 450/450, typecheck, production build, and Rust 66/66 passed.
 - **Current task:** none.
 - **Next task:** macOS .dmg packaging + signing/notarization (requires Apple Developer credentials).
 
@@ -52,6 +52,7 @@
 
 - src/App.tsx · src/screens/{ProjectsScreen,SettingsScreen,OnboardingWizard}.tsx · src/components/ProjectList.tsx
 - src/services/{settingsService,providerService,projectsService,projectFs,repoScan,anchor,consent,profileDraft}.ts · src/schemas/providerProfile.ts · src/ipc/index.ts
+- src/sessions/{types,adapters,executionSessionService}.ts · src/db/repos/executionSessions.ts · src/screens/SessionsScreen.tsx · src/services/projectGuidance.ts
 - src/redaction/blocklist.ts · src/templates/{instructions,contextDocs}.ts
 - src/db/{runner,migrate,appDb,pluginSqlRunner,betterSqliteRunner}.ts · src/db/migrations/{0001_init.sql,0002_fts.sql} · src/db/repos/{projects,settingsRepo,contextDocs}.ts
 - src-tauri/src/{lib,keychain,provider}.rs · src-tauri/src/commands/{keychain,provider,fs}.rs · src-tauri/{tauri.conf.json,Cargo.toml} · src-tauri/capabilities/default.json
@@ -77,10 +78,11 @@
 - 2026-08-10 · Handoff hardening validated: registered repo path and safety instructions are explicit; inferred scope is framed for verification; original execution is separated from handoff target; inverted destructive-database wording is normalized; Git porcelain paths preserve their first character; generated/build paths are filtered from evidence. Gates: targeted 41/41 plus Rust path regression; TypeScript 439/439; Rust 66/66; typecheck; production build; macOS `.app` bundle.
 - 2026-08-10 · Live semantic context refresh validated: source-work fingerprints detect external changes while ignoring generated-only changes; semantic snapshots persist per project; unchanged fingerprints reuse without provider calls; failures remain mechanically handoffable without retry loops. Gates: targeted 56/56; TypeScript 446/446; Rust 66/66; typecheck; production build; macOS `.app` bundle.
 - 2026-08-10 · Committed external-change edge case validated: semantic snapshots retain HEAD A, Continue requests bounded A→B diff evidence for clean HEAD B, extracts committed source paths, refreshes once, and reuses at unchanged B. Targeted: 9 TypeScript + 19 Rust Git tests; typecheck; production build.
+- 2026-08-11 · Session Core productization validated: migration 0006 persists provider-neutral execution sessions plus append-only transcript/checkpoint events; successful TaskSpec persistence creates/reuses a session; runtime adapters preserve canonical knowledge across Claude Code, Codex and Qwen; startup reconciliation marks changed sessions interrupted and safely recovers missing-session TaskSpecs as external; Sessions UI exposes switching, continuation copy, checkpoints, and Rules/Skills inventory. Gates: TypeScript 450/450; typecheck; production build without warnings; Rust 66/66.
 
 ## Git checkpoint
 
-- **Latest commit:** `a85239f` — committed external-change context edge case.
+- **Latest commit:** `feat(session): add persistent execution core`.
 - **Uncommitted changes:** none.
 
 ## Recent history
