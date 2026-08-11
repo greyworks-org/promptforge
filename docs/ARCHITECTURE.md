@@ -535,3 +535,20 @@ for a future VS Code panel: it exposes status, runtime/model binding, task and
 progress state, live changed files, events, and completion/failure state. The
 existing handoff fallback remains model-free when there is no session
 transcript.
+
+### 11.7 VS Code visual integration
+
+The first VS Code integration is read-only. `getExecutionSessionView` remains
+the sole producer of panel data; `src/services/vscodeIntegration.ts` publishes
+that derived view to an in-memory, loopback-only Rust bridge. The bridge stores
+no canonical state, accepts only `GET` requests, requires a per-launch bearer
+token, and exposes only the selected project/session route. It is transport
+code, not a second session or runtime implementation.
+
+`vscode-extension/` contributes a small VS Code Tree View. Its extension host
+polls the bridge and validates the returned JSON before displaying status,
+runtime/version, opaque model binding, task/progress, changed files, and recent
+events. PromptForge copies a connection URI from the Sessions screen; the URI
+contains only the loopback endpoint, bridge token, project id, and session id.
+The extension has no write path, runtime launcher, provider access, or
+independent project state.

@@ -1,0 +1,60 @@
+{
+  "name": "promptforge-vscode",
+  "displayName": "PromptForge Session",
+  "description": "Read-only PromptForge session status for VS Code.",
+  "version": "0.1.0",
+  "publisher": "promptforge",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onView:promptforge.sessionStatus", "onCommand:promptforge.connect"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptforge.connect",
+        "title": "PromptForge: Connect Session"
+      },
+      {
+        "command": "promptforge.refresh",
+        "title": "PromptForge: Refresh Session"
+      }
+    ],
+    "configuration": {
+      "title": "PromptForge",
+      "properties": {
+        "promptforge.connection": {
+          "type": "string",
+          "default": "",
+          "description": "Session connection copied from PromptForge Local. Keep this local-only value private."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "promptforge",
+          "title": "PromptForge",
+          "icon": "resources/promptforge.svg"
+        }
+      ]
+    },
+    "views": {
+      "promptforge": [
+        {
+          "id": "promptforge.sessionStatus",
+          "name": "Session Status"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

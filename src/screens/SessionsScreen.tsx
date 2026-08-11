@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   finishExecutionSession,
   appendSessionEvent,
+  getExecutionSessionView,
   launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   reconcileProjectSessions,
@@ -11,6 +12,11 @@ import {
 import type { ExecutionSession, SessionEvent, SessionRuntime } from '../sessions/types';
 import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectGuidance';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
+import {
+  formatVscodeConnection,
+  getVscodeConnection,
+  publishVscodeSessionView,
+} from '../services/vscodeIntegration';
 
 export interface SessionsScreenProps {
   projectId: string;
@@ -28,6 +34,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [note, setNote] = useState('');
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
   const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
+  const [vscodeConnection, setVscodeConnection] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +59,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
         ]);
         setEvents(nextEvents);
         setPrompt(nextPrompt);
+        try { await publishVscodeSessionView(projectId, nextId); } catch { /* panel connection is optional */ }
       } else {
         setEvents([]);
         setPrompt('');
@@ -65,6 +73,16 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    const timer = window.setInterval(() => {
+      void getExecutionSessionView(projectId, selectedId)
+        .then((view) => publishVscodeSessionView(projectId, selectedId, view))
+        .catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [projectId, selectedId]);
+
   const select = async (sessionId: string) => {
     setSelectedId(sessionId);
     try {
@@ -74,6 +92,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       ]);
       setEvents(nextEvents);
       setPrompt(nextPrompt);
+      try { await publishVscodeSessionView(projectId, sessionId); } catch { /* panel connection is optional */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Session details could not be loaded.');
     }
@@ -124,6 +143,17 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const copy = async () => {
     if (!prompt || !navigator.clipboard) return;
     await navigator.clipboard.writeText(prompt);
+  };
+
+  const connectVscode = async () => {
+    if (!selected) return;
+    try {
+      const connection = formatVscodeConnection(await getVscodeConnection(projectId, selected.id));
+      setVscodeConnection(connection);
+      if (navigator.clipboard) await navigator.clipboard.writeText(connection);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'VS Code connection could not be prepared.');
+    }
   };
 
   return (
@@ -181,11 +211,20 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
+                <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Connect VS Code</button>
                 <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Open in OpenCode</button>
                 <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
                 <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
               </div>
+
+              {vscodeConnection && (
+                <details className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                  <summary className="cursor-pointer text-xs font-medium text-blue-900">VS Code connection copied</summary>
+                  <p className="mt-2 break-all font-mono text-[10px] text-blue-800">Paste this into the PromptForge: Connect command in VS Code.</p>
+                  <code className="mt-1 block break-all text-[10px] text-blue-800">{vscodeConnection}</code>
+                </details>
+              )}
 
               <div className="grid gap-2">
                 <label htmlFor="session-note" className="text-xs font-medium">Add local checkpoint knowledge</label>

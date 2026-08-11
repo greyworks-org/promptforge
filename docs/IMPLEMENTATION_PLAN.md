@@ -594,6 +594,34 @@ The next phase is the VS Code Visual Integration Layer. It consumes the
 session read model and does not move canonical state into the extension or
 OpenCode.
 
+## VS Code Visual Integration Layer
+
+This first visual-integration slice keeps VS Code as the visual development
+environment while PromptForge remains canonical and OpenCode remains the
+primary runtime. The existing `getExecutionSessionView` is published through
+a read-only, loopback-only, in-memory bridge with a per-launch bearer token.
+PromptForge owns publication and refresh; the extension never reads or writes
+the SQLite database directly.
+
+The `vscode-extension/` package contributes a Session Status Tree View and
+explicit Connect/Refresh commands. It displays the current session status,
+runtime/version, opaque model binding, task progress, changed files, and recent
+events. The Sessions screen copies a scoped connection URI for the selected
+project/session and refreshes the published view while it is open.
+
+Out of scope: live browser preview, visual element selection, autocomplete or
+Cursor Tab behavior, runtime launch/control actions, duplicated session state,
+and optional worktrees.
+
+**Completion condition.** Extension typecheck, connection/bridge unit tests,
+frontend typecheck, full TypeScript tests, Rust tests, and production build
+pass. Manual VS Code installation/connection remains a pre-release check.
+
+**Next recommended phase.** VS Code session control layer: explicit,
+user-confirmed OpenCode start/resume and checkpoint-note actions over a new
+command bridge, while preserving the same canonical PromptForge session and
+read-model boundaries.
+
 ## After Phase 11 (MVP release gate)
 
 - Execute `MVP_SCOPE.md` §4 definition-of-done end-to-end on two real

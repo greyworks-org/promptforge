@@ -13,6 +13,7 @@ pub struct AppState {
     /// Populated on first read, cleared on app exit.
     /// Never persisted — Keychain remains the source of truth.
     pub key_cache: Mutex<HashMap<String, String>>,
+    pub vscode_bridge: commands::vscode::ReadModelBridge,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -23,6 +24,8 @@ pub fn run() {
         .manage(AppState {
             secrets: Arc::new(KeyringStore),
             key_cache: Mutex::new(HashMap::new()),
+            vscode_bridge: commands::vscode::ReadModelBridge::new()
+                .expect("could not start the VS Code read-model bridge"),
         })
         .invoke_handler(tauri::generate_handler![
             commands::keychain::keychain_set,
@@ -41,6 +44,8 @@ pub fn run() {
             commands::shell::launch_cli,
             commands::shell::runtime_status,
             commands::shell::launch_runtime,
+            commands::vscode::vscode_read_model_endpoint,
+            commands::vscode::vscode_publish_session_view,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PromptForge");
