@@ -2,21 +2,28 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   finishExecutionSession,
   appendSessionEvent,
+  getExecutionSession,
   getExecutionSessionView,
   launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   reconcileProjectSessions,
   renderSessionContinuation,
+  renderSessionTask,
   selectOpenCodeModel,
   switchSessionRuntime,
+  updateSessionInstruction,
 } from '../sessions/executionSessionService';
 import type { ExecutionSession, SessionEvent, SessionRuntime } from '../sessions/types';
 import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectGuidance';
+import {
+  listProjectContextDocuments,
+  removeProjectContextDocument,
+  selectProjectContextDocument,
+} from '../services/projectContextService';
 import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
-  formatVscodeConnection,
-  getVscodeConnection,
+  openVscode,
   publishVscodeSessionView,
 } from '../services/vscodeIntegration';
 
@@ -33,7 +40,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [prompt, setPrompt] = useState('');
+  const [newInstruction, setNewInstruction] = useState('');
   const [note, setNote] = useState('');
+  const [contextPath, setContextPath] = useState('');
+  const [contextDocs, setContextDocs] = useState<string[]>([]);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
   const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelDiscovery | null>(null);
@@ -54,6 +66,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
         : reconciled[0]?.id ?? null;
       setSelectedId(nextId);
       setGuidance(await inspectProjectGuidance(projectId));
+      setContextDocs((await listProjectContextDocuments(projectId)).map((document) => document.relPath));
       try { setOpenCodeAvailability(await detectRuntime('opencode')); } catch { setOpenCodeAvailability(null); }
       if (nextId) {
         const nextSession = reconciled.find((session) => session.id === nextId);
@@ -72,10 +85,13 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
         ]);
         setEvents(nextEvents);
         setPrompt(nextPrompt);
+        setNewInstruction(nextSession?.userInstruction ?? '');
         try { await publishVscodeSessionView(projectId, nextId); } catch { /* panel connection is optional */ }
       } else {
         setEvents([]);
         setPrompt('');
+        setNewInstruction('');
+        setContextDocs([]);
         setOpenCodeModels(null);
       }
     } catch (err) {
@@ -99,6 +115,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
   const select = async (sessionId: string) => {
     setSelectedId(sessionId);
+    setLaunchFeedback(null);
     try {
       const nextSession = sessions.find((session) => session.id === sessionId);
       if (nextSession?.runtime === 'opencode') {
@@ -116,6 +133,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       ]);
       setEvents(nextEvents);
       setPrompt(nextPrompt);
+      setNewInstruction(nextSession?.userInstruction ?? '');
       try { await publishVscodeSessionView(projectId, sessionId); } catch { /* panel connection is optional */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Session details could not be loaded.');
@@ -157,10 +175,29 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const launchOpenCode = async (mode: 'start' | 'resume') => {
     if (!selected) return;
     try {
-      await launchExecutionSessionThroughOpenCode(projectId, selected.id, mode);
-      await load();
+      const saved = await updateSessionInstruction(projectId, selected.id, newInstruction);
+      const taskPrompt = await renderSessionTask(projectId, selected.id, saved.userInstruction);
+      const result = await launchExecutionSessionThroughOpenCode(projectId, selected.id, mode, taskPrompt);
+      setSessions((current) => current.map((session) => session.id === result.session.id ? result.session : session));
+      setEvents(await listSessionEvents(projectId, selected.id));
+      setPrompt(await renderSessionContinuation(projectId, selected.id));
+      setLaunchFeedback(`STARTED: OpenCode is running in ${projectName}.`);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'OpenCode launch failed.');
+      const message = err instanceof Error ? err.message : 'OpenCode launch failed.';
+      setLaunchFeedback(`FAILED: ${message}`);
+      setError(message);
+      try {
+        const failed = await getExecutionSession(projectId, selected.id);
+        if (failed !== null) {
+          setSessions((current) => current.map((session) => session.id === failed.id ? failed : session));
+          setNewInstruction(failed.userInstruction);
+          setEvents(await listSessionEvents(projectId, failed.id));
+        }
+      } catch (refreshError) {
+        const detail = refreshError instanceof Error ? refreshError.message : 'unknown session refresh error';
+        setError(`${message} Session state refresh failed: ${detail}`);
+      }
     }
   };
 
@@ -184,13 +221,36 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const connectVscode = async () => {
     if (!selected) return;
     try {
-      const connection = formatVscodeConnection(await getVscodeConnection(projectId, selected.id));
-      setVscodeConnection(connection);
-      if (navigator.clipboard) await navigator.clipboard.writeText(connection);
+      const result = await openVscode(projectId);
+      setVscodeConnection(`Opened ${result.application} at ${result.projectRoot}`);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'VS Code connection could not be prepared.');
+      setError(err instanceof Error ? err.message : 'VS Code could not be opened.');
     }
   };
+
+  const addContextDocument = async () => {
+    try {
+      const document = await selectProjectContextDocument(projectId, contextPath);
+      setContextDocs((current) => [...new Set([...current, document.relPath])].sort());
+      setContextPath('');
+      setContextError(null);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'Context document could not be selected.');
+    }
+  };
+
+  const removeContextDocument = async (path: string) => {
+    try {
+      await removeProjectContextDocument(projectId, path);
+      setContextDocs((current) => current.filter((item) => item !== path));
+      setContextError(null);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'Context document could not be removed.');
+    }
+  };
+
+  const latestLaunchEvent = [...events].reverse().find((event) => event.kind === 'runtime_launch' || event.kind === 'runtime_failure');
 
   return (
     <section className="space-y-5">
@@ -269,20 +329,45 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
               <div className="flex gap-2">
                 <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
-                <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Connect VS Code</button>
-                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Open in OpenCode</button>
-                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume OpenCode</button>
+                <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Open VS Code</button>
+                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
+                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
                 <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
               </div>
 
+              {(launchFeedback || latestLaunchEvent) && (
+                <p className={`rounded border p-2 text-xs ${launchFeedback?.startsWith('FAILED') || latestLaunchEvent?.kind === 'runtime_failure' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`} role="status">
+                  {launchFeedback ?? `${latestLaunchEvent?.kind === 'runtime_launch' ? 'STARTED' : 'FAILED'}: ${latestLaunchEvent?.content}`}
+                </p>
+              )}
+
               {vscodeConnection && (
                 <details className="rounded-md border border-blue-200 bg-blue-50 p-3">
-                  <summary className="cursor-pointer text-xs font-medium text-blue-900">VS Code connection copied</summary>
-                  <p className="mt-2 break-all font-mono text-[10px] text-blue-800">Paste this into the PromptForge: Connect command in VS Code.</p>
-                  <code className="mt-1 block break-all text-[10px] text-blue-800">{vscodeConnection}</code>
+                  <summary className="cursor-pointer text-xs font-medium text-blue-900">VS Code launch result</summary>
+                  <p className="mt-2 break-all font-mono text-[10px] text-blue-800">{vscodeConnection}</p>
                 </details>
               )}
+
+              <div className="rounded-md border border-sky-100 bg-sky-50/50 p-3">
+                <p className="text-xs font-medium text-sky-950">Project context documents</p>
+                <p className="mt-1 text-[11px] text-sky-800">Selected repository files are read-only references. Paths are stored relative to the registered project.</p>
+                <div className="mt-2 flex gap-2">
+                  <input value={contextPath} onChange={(event) => setContextPath(event.target.value)} className="min-w-0 flex-1 rounded border border-sky-200 bg-white px-2 py-1.5 text-xs" placeholder="docs/offerpath-v2/offerpath-source-of-truth.md" aria-label="Project context document path" />
+                  <button type="button" onClick={() => void addContextDocument()} disabled={contextPath.trim() === ''} className="rounded border border-sky-300 px-2 py-1 text-xs text-sky-800 disabled:opacity-50">Add document</button>
+                </div>
+                {contextError && <p className="mt-2 text-[11px] text-red-700" role="alert">{contextError}</p>}
+                <div className="mt-2 space-y-1 text-xs text-sky-900">
+                  {contextDocs.length === 0 && <p className="text-sky-700">No project context documents selected.</p>}
+                  {contextDocs.map((path) => <div key={path} className="flex items-center justify-between gap-2"><code>{path}</code><button type="button" onClick={() => void removeContextDocument(path)} className="text-[11px] text-red-700">Remove</button></div>)}
+                </div>
+              </div>
+
+              <div className="grid gap-2 rounded-md border border-amber-100 bg-amber-50/50 p-3">
+                <label htmlFor="new-instruction" className="text-xs font-medium text-amber-950">New instruction</label>
+                <textarea id="new-instruction" value={newInstruction} onChange={(event) => setNewInstruction(event.target.value)} rows={4} className="rounded border border-amber-200 bg-white px-2 py-1.5 text-xs" placeholder="What should OpenCode do next?" />
+                <p className="text-[11px] text-amber-800">This is the next task input. It stays separate from checkpoint knowledge and is preserved if launch fails.</p>
+              </div>
 
               <div className="grid gap-2">
                 <label htmlFor="session-note" className="text-xs font-medium">Add local checkpoint knowledge</label>

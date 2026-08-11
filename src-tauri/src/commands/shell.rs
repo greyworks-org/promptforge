@@ -1,7 +1,8 @@
 use std::env;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -16,6 +17,15 @@ pub struct RuntimeStatus {
     pub version: Option<String>,
     pub capabilities: Vec<String>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeLaunchResult {
+    pub started: bool,
+    pub pid: Option<u32>,
+    pub exit_code: Option<i32>,
+    pub stderr: Option<String>,
 }
 
 fn runtime_binary(runtime: &str) -> Option<&'static str> {
@@ -382,7 +392,7 @@ pub fn launch_runtime(
     external_session_id: Option<String>,
     model_ref: Option<String>,
     continuation_prompt: Option<String>,
-) -> Result<(), String> {
+) -> Result<RuntimeLaunchResult, String> {
     let cwd = PathBuf::from(&project_root);
     if !cwd.is_dir() {
         return Err(format!("Not a directory: {}", project_root));
@@ -396,8 +406,28 @@ pub fn launch_runtime(
     command.current_dir(&cwd);
     command.args(runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?);
 
-    command.spawn().map_err(|error| format!("Could not launch {}: {}", binary, error))?;
-    Ok(())
+    let mut child = command
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Could not launch {}: {}", binary, error))?;
+    let pid = child.id();
+    match child.try_wait().map_err(|error| format!("Could not verify {} launch: {}", binary, error))? {
+        None => Ok(RuntimeLaunchResult { started: true, pid: Some(pid), exit_code: None, stderr: None }),
+        Some(status) => {
+            let stderr = child.stderr.as_mut().and_then(|pipe| {
+                let mut text = String::new();
+                pipe.read_to_string(&mut text).ok()?;
+                let trimmed = text.trim().to_string();
+                (!trimmed.is_empty()).then_some(trimmed)
+            });
+            Ok(RuntimeLaunchResult {
+                started: false,
+                pid: Some(pid),
+                exit_code: status.code(),
+                stderr,
+            })
+        }
+    }
 }
 
 /// Open the default terminal at `project_root`.

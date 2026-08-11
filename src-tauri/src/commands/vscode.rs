@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -34,6 +35,46 @@ pub struct ReadModelBridge {
 pub struct ReadModelEndpoint {
     pub base_url: String,
     pub token: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VscodeLaunchResult {
+    pub project_root: String,
+    pub application: String,
+}
+
+/// Open the exact registered project root with the native VS Code application.
+/// This avoids webview custom-protocol navigation and never accepts a caller-supplied root.
+#[tauri::command]
+pub fn open_vscode(
+    app: tauri::AppHandle,
+    project_id: String,
+) -> Result<VscodeLaunchResult, String> {
+    let root = crate::commands::fs::resolve_project_root(&app, &project_id)?;
+    let root_text = root.to_string_lossy().into_owned();
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("/usr/bin/open")
+            .args(["-a", "Visual Studio Code", &root_text])
+            .output()
+            .map_err(|error| format!("VS Code could not be opened: {}", error))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if detail.is_empty() {
+                "Visual Studio Code is not installed or could not be opened. Install VS Code or make it available to macOS Launch Services.".into()
+            } else {
+                format!("VS Code could not be opened: {}", detail)
+            });
+        }
+        return Ok(VscodeLaunchResult { project_root: root_text, application: "Visual Studio Code".into() });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Native VS Code launch is currently supported on macOS only.".into())
+    }
 }
 
 #[derive(Debug, Deserialize)]

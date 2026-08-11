@@ -5,6 +5,7 @@ import {
 } from '../db/repos/executionSessions';
 import type { CompilationRecord } from '../db/repos/compilations';
 import type { QueryRunner } from '../db/runner';
+import { createProjectContextDocumentsRepository } from '../db/repos/projectContextDocuments';
 import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
 import { getCompilation } from '../services/historyService';
@@ -31,6 +32,11 @@ export function setDbForTests(runner: QueryRunner | null): void { testRunner = r
 
 async function repo(): Promise<ExecutionSessionsRepository> {
   return createExecutionSessionsRepository(testRunner ?? (await getAppDb()));
+}
+
+async function selectedContextPaths(projectId: string): Promise<string[]> {
+  const contextRepository = createProjectContextDocumentsRepository(testRunner ?? (await getAppDb()));
+  return (await contextRepository.listByProject(projectId)).map((document) => document.relPath);
 }
 
 function id(prefix: string): string {
@@ -165,6 +171,18 @@ export async function updateSessionBinding(
   return updated;
 }
 
+export async function updateSessionInstruction(
+  projectId: string,
+  sessionId: string,
+  instruction: string,
+): Promise<ExecutionSession> {
+  const normalized = instruction.trim();
+  if (normalized.length > 20000) throw new Error('New instruction is too long.');
+  const updated = await (await repo()).update(projectId, sessionId, { userInstruction: normalized });
+  if (updated === null) throw new Error('Execution session was not found for this project.');
+  return updated;
+}
+
 /** Persist the selected OpenCode model without creating a model-specific adapter. */
 export async function selectOpenCodeModel(
   projectId: string,
@@ -205,6 +223,7 @@ export interface ExecutionSessionView {
   task: { id: string | null; objective: string };
   progress: { completed: string[]; pending: string[]; lastAction: string | null };
   context: { status: 'fresh' | 'stale' | 'unavailable'; checkpoint: string | null };
+  projectContextDocuments: string[];
   completion: 'active' | 'completed' | 'failed' | 'interrupted';
   controls: { canStart: boolean; canResume: boolean; canCheckpoint: boolean };
 }
@@ -225,10 +244,11 @@ export function deriveExecutionSessionControls(session: ExecutionSession, events
 export async function getExecutionSessionView(projectId: string, sessionId: string): Promise<ExecutionSessionView> {
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
-  const [events, git, memory] = await Promise.all([
+  const [events, git, memory, projectContextDocuments] = await Promise.all([
     listSessionEvents(projectId, sessionId),
     getGitSnapshot(projectId, session.baseCommit ?? undefined),
     getMemory(projectId),
+    selectedContextPaths(projectId),
   ]);
   const changedFiles = [...new Set([
     ...git.uncommitted.staged,
@@ -252,6 +272,7 @@ export async function getExecutionSessionView(projectId: string, sessionId: stri
       status: memory.semanticContext === null ? 'unavailable' : memory.semanticContext.status === 'fresh' ? 'fresh' : 'stale',
       checkpoint: [...events].reverse().find((event) => event.kind === 'checkpoint' || event.kind === 'user_note')?.content ?? null,
     },
+    projectContextDocuments,
     completion,
     controls: deriveExecutionSessionControls(session, events),
   };
@@ -270,12 +291,12 @@ export async function launchExecutionSessionThroughOpenCode(
   }
   const availability = await detectRuntime('opencode');
   if (!availability.installed) {
-    await appendSessionEvent(projectId, sessionId, 'runtime_failure', 'OpenCode is not installed or could not be detected.', 'opencode');
+    await appendSessionEvent(projectId, sessionId, 'runtime_failure', availability.error ?? 'OpenCode is not installed or could not be detected.', 'opencode');
     await finishExecutionSession(projectId, sessionId, 'failed');
     throw new Error(availability.error ?? 'OpenCode is not installed.');
   }
   try {
-    await launchRuntimeProcess({
+    const launchResult = await launchRuntimeProcess({
       runtime: 'opencode',
       projectId,
       resume: mode === 'resume',
@@ -283,16 +304,30 @@ export async function launchExecutionSessionThroughOpenCode(
       modelRef: session.binding.modelRef,
       continuationPrompt: continuationPrompt ?? null,
     });
+    if (!launchResult.started) {
+      const details = [
+        launchResult.exitCode === null ? null : `exit code ${launchResult.exitCode}`,
+        launchResult.stderr,
+      ].filter((value): value is string => value !== null && value.trim() !== '').join(': ');
+      throw new Error(`OpenCode exited before it could start${details ? ` (${details})` : '.'}`);
+    }
     const binding: RuntimeBinding = {
       ...session.binding,
       detectedVersion: availability.version,
       capabilities: availability.capabilities,
     };
     session = await updateSessionBinding(projectId, sessionId, binding);
-    await appendSessionEvent(projectId, sessionId, 'runtime_launch', `OpenCode ${mode} requested.`, 'opencode');
+    await appendSessionEvent(
+      projectId,
+      sessionId,
+      'runtime_launch',
+      `OpenCode ${mode} started${launchResult.pid === null ? '' : ` (process ${launchResult.pid})`}.`,
+      'opencode',
+    );
     return { session, availability };
   } catch (err) {
-    await appendSessionEvent(projectId, sessionId, 'runtime_failure', 'OpenCode could not be launched.', 'opencode');
+    const message = err instanceof Error ? err.message : 'OpenCode could not be launched.';
+    await appendSessionEvent(projectId, sessionId, 'runtime_failure', message, 'opencode');
     await finishExecutionSession(projectId, sessionId, 'failed');
     throw err;
   }
@@ -355,5 +390,12 @@ export async function renderSessionContinuation(projectId: string, sessionId: st
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
   const events = await listSessionEvents(projectId, sessionId);
-  return adapterFor(session.runtime).renderContinuation(session, events);
+  return adapterFor(session.runtime).renderContinuation(session, events, await selectedContextPaths(projectId));
+}
+
+/** Compose the read-only canonical continuation with the explicit user instruction. */
+export async function renderSessionTask(projectId: string, sessionId: string, instruction: string): Promise<string> {
+  const canonical = await renderSessionContinuation(projectId, sessionId);
+  const normalized = instruction.trim();
+  return normalized === '' ? canonical : `${canonical}\n\n## New user instruction\n${normalized}`;
 }

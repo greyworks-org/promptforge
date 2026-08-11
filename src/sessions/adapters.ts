@@ -4,7 +4,7 @@ export interface RuntimeAdapter {
   runtime: SessionRuntime;
   label: string;
   instructionFiles: string[];
-  renderContinuation(session: ExecutionSession, events: SessionEvent[]): string;
+  renderContinuation(session: ExecutionSession, events: SessionEvent[], contextPaths?: string[]): string;
 }
 
 function commonContinuation(session: ExecutionSession, events: SessionEvent[]): string[] {
@@ -52,10 +52,19 @@ function makeAdapter(runtime: SessionRuntime, label: string, instructionFiles: s
     runtime,
     label,
     instructionFiles,
-    renderContinuation(session, events) {
+    renderContinuation(session, events, contextPaths = []) {
+      const selectedContext = contextPaths.length > 0
+        ? [
+          '',
+          '## Selected project context documents',
+          'Before acting, read these existing files from the registered repository:',
+          ...contextPaths.map((path) => `- ${path}`),
+        ]
+        : [];
       return [
         `# PromptForge continuation · ${label}`,
         `Read ${instructionFiles.join(' and ')} before acting.`,
+        ...selectedContext,
         ...commonContinuation(session, events),
       ].join('\n');
     },

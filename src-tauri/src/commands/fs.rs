@@ -9,7 +9,7 @@ use tauri::Manager;
 /// Resolve a `projectId` to its canonical `repo_path` by querying the
 /// central SQLite registry.  The frontend must not supply an arbitrary root;
 /// every scoped fs command goes through this function.
-fn resolve_project_root(app_handle: &tauri::AppHandle, project_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_project_root(app_handle: &tauri::AppHandle, project_id: &str) -> Result<PathBuf, String> {
     let db_path = app_handle
         .path()
         .app_data_dir()
@@ -308,6 +308,30 @@ pub fn fs_resolve_project_root(
 ) -> Result<String, String> {
     let root = resolve_project_root(&app, &project_id)?;
     Ok(root.to_string_lossy().into_owned())
+}
+
+/// Inspect a path inside a registered project without reading or modifying it.
+#[tauri::command]
+pub fn fs_metadata_scoped(
+    app: tauri::AppHandle,
+    project_id: String,
+    path: String,
+) -> Result<FsMetadata, String> {
+    let root = resolve_project_root(&app, &project_id)?;
+    let resolved = resolve_scoped(&root, &path)?;
+    match std::fs::metadata(&resolved) {
+        Ok(metadata) => Ok(FsMetadata {
+            exists: true,
+            is_dir: metadata.is_dir(),
+            canonical_path: None,
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FsMetadata {
+            exists: false,
+            is_dir: false,
+            canonical_path: None,
+        }),
+        Err(error) => Err(format!("Could not inspect {}: {}", path, error)),
+    }
 }
 
 /// Read a text file scoped to a registered project.  `path` must be

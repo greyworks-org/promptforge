@@ -62,6 +62,7 @@ export interface ExecutionSession {
   taskId: string | null;
   runtime: SessionRuntime;
   binding: RuntimeBinding;
+  userInstruction: string;
   status: SessionStatus;
   state: CanonicalSessionState;
   baseCommit: string | null;

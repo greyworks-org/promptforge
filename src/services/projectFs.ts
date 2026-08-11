@@ -20,6 +20,11 @@ interface DirEntry {
   sizeBytes: number;
 }
 
+interface ScopedFsMetadata {
+  exists: boolean;
+  isDir: boolean;
+}
+
 /** Resolve a projectId to its canonical root path. */
 export async function resolveProjectRoot(projectId: string): Promise<string> {
   return invokeIpc<string>('fs_resolve_project_root', { projectId });
@@ -56,4 +61,9 @@ export async function listDirectory(projectId: string, relPath: string): Promise
 /** Check whether a path exists, scoped to a registered project. */
 export async function fileExists(projectId: string, relPath: string): Promise<boolean> {
   return invokeIpc<boolean>('fs_exists', { projectId, path: relPath });
+}
+
+/** Inspect an existing path without reading or modifying its contents. */
+export async function metadata(projectId: string, relPath: string): Promise<ScopedFsMetadata> {
+  return invokeIpc<ScopedFsMetadata>('fs_metadata_scoped', { projectId, path: relPath });
 }

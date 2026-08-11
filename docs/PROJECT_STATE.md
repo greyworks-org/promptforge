@@ -16,8 +16,8 @@
 ## Progress
 
 - **Current phase:** VS Code Visual Handoff & Review Layer complete — the existing VS Code session control surface now opens a confirmation-gated structured handoff review and exposes source→target lineage.
-- **Last validated task:** VS Code Visual Handoff & Review Layer (2026-08-11) — canonical OpenCode model discovery, bounded continuation preview, explicit confirmation, target session launch, source immutability, and lineage readout validated through the existing loopback bridge. Gates: TypeScript 466/466; root typecheck; extension TypeScript production compile; relevant Rust bridge tests 4/4; main production build; diff check.
-- **Current task:** none — VS Code Visual Handoff & Review Layer completed (2026-08-11).
+- **Last validated task:** PromptForge session control-path slice (2026-08-11) — persisted per-session user instruction, project-scoped context-document allowlist with safe relative paths, canonical continuation/task separation, explicit OpenCode launch outcomes and persisted errors, failed-launch instruction retention, native macOS VS Code launch, and visible STARTED/FAILED feedback. Gates: focused TypeScript 27/27; root typecheck; production build; Rust shell tests 22/22; Rust VS Code bridge tests 4/4; diff check.
+- **Current task:** none — PromptForge session control-path slice completed (2026-08-11).
 - **Next task:** Handoff history and bounded failure recovery read models — make persisted prepared/failed outcomes discoverable without adding a timeline or changing execution ownership.
 
 ## Decisions (confirmed)
@@ -99,14 +99,16 @@
 - 2026-08-11 · Cross-Model Handoff & Continuation Layer validated: explicit handoff service creates a new OpenCode ExecutionSession for the same Task, persists source→handoff→target lineage, preserves checkpoint/evidence semantics without full transcript replay, and routes canonical repo + selected modelRef + bounded continuation through the existing launcher. Targeted: 42 TypeScript tests; final TypeScript: 463/463; typecheck; production build; 18 relevant Rust shell tests; diff check.
 - 2026-08-11 · VS Code Visual Handoff & Review Layer validated: Handoff was added to the existing session control tree; the loopback bridge now serves canonical model discovery, structured continuation preview, confirmation-gated target creation/launch, and source→target lineage. The review renders bounded evidence sections without the full transcript; preview/confirm integration verifies no pre-confirm launch, one target, exact continuation reuse, source immutability, and existing controls/model orchestration preserved. Targeted: 8/8; final: TypeScript 466/466, root typecheck, extension compile, Rust bridge 4/4, main build, diff check.
 - 2026-08-11 · macOS release OpenCode discovery fix validated: PATH lookup remains supported; `$HOME/.opencode/bin/opencode` is checked only when PATH lookup has no usable executable; executable permission and bounded `--version` success are required. Focused Rust shell tests: 22/22. Tauri macOS release bundle passed.
+- 2026-08-11 · Session control-path slice validated: migration 0009 persists per-session user instructions and project-scoped context-document references; safe relative-path normalization and registered-project metadata checks protect the allowlist; canonical continuation stays separate from the new instruction; OpenCode receives the composed task prompt; actual launch outcomes/errors persist and remain visible; failed launches retain the instruction; native macOS Open VS Code uses the registered project root. Gates: focused TypeScript 27/27; root typecheck; production build; Rust shell 22/22; Rust VS Code bridge 4/4; `git diff --check`. OpenCode capability validation was unchanged from the prior passing run.
 
 ## Git checkpoint
 
-- **Latest commit:** `feat(handoff): add cross-model continuation`.
+- **Latest commit:** `feat(sessions): complete OpenCode control path` (current HEAD).
 - **Uncommitted changes:** none.
 
 ## Recent history
 
+- 2026-08-11 · Session control-path slice — persisted session instructions and project context allowlists, composed OpenCode task prompts, explicit launch result/error handling, native macOS VS Code launch, and visible launch feedback.
 - 2026-08-11 · OpenCode Provider & Model Orchestration Foundation — sanitized OpenCode model/provider discovery, explicit configured-model fallback, persistent model selection, and selected-model start/resume routing.
 - 2026-08-11 · Cross-Model Handoff & Continuation Layer — explicit bounded source→handoff→new OpenCode target lineage, evidence-aware continuation injection, and duplicate/invalid-target guards.
 - 2026-08-10 · PromptForge v1 committed external-change context edge case — previous semantic HEAD is used for bounded commit-range refresh evidence when the working tree is clean.

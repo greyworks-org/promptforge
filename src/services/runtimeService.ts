@@ -29,10 +29,17 @@ export interface LaunchRuntimeInput {
   continuationPrompt?: string | null;
 }
 
+export interface RuntimeLaunchResult {
+  started: boolean;
+  pid: number | null;
+  exitCode: number | null;
+  stderr: string | null;
+}
+
 /** Launches a fixed runtime binary in the registered project root. Continuation text is optional and explicit. */
-export async function launchRuntimeProcess(input: LaunchRuntimeInput): Promise<void> {
+export async function launchRuntimeProcess(input: LaunchRuntimeInput): Promise<RuntimeLaunchResult> {
   const projectRoot = await resolveProjectRoot(input.projectId);
-  await invokeIpc('launch_runtime', {
+  return invokeIpc<RuntimeLaunchResult>('launch_runtime', {
     runtime: input.runtime,
     projectRoot,
     resume: input.resume,

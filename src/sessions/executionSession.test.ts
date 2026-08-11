@@ -12,9 +12,11 @@ import {
   launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   renderSessionContinuation,
+  renderSessionTask,
   selectOpenCodeModel,
   startExecutionSession,
   switchSessionRuntime,
+  updateSessionInstruction,
   setDbForTests,
 } from './executionSessionService';
 import * as runtimeService from '../services/runtimeService';
@@ -178,7 +180,12 @@ describe('execution session continuity', () => {
       capabilities: ['model-routing'],
       error: null,
     });
-    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue();
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue({
+      started: true,
+      pid: 1234,
+      exitCode: null,
+      stderr: null,
+    });
 
     await launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume');
 
@@ -189,5 +196,44 @@ describe('execution session continuity', () => {
       modelRef: 'openrouter/deepseek/deepseek-v4-pro',
       continuationPrompt: null,
     }));
+  });
+
+  it('persists a new instruction and composes it after canonical context', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    await runner.execute(
+      'INSERT INTO project_context_documents (project_id, rel_path, selected_at) VALUES (?, ?, ?)',
+      ['project-session', 'docs/offerpath-v2/offerpath-source-of-truth.md', 'now'],
+    );
+    const saved = await updateSessionInstruction('project-session', created.id, 'Implement the next safe slice.');
+    const composed = await renderSessionTask('project-session', created.id, saved.userInstruction);
+
+    expect(saved.userInstruction).toBe('Implement the next safe slice.');
+    expect(composed).toContain('docs/offerpath-v2/offerpath-source-of-truth.md');
+    expect(composed).toContain('## New user instruction\nImplement the next safe slice.');
+    expect(await renderSessionContinuation('project-session', created.id)).not.toContain('New user instruction');
+  });
+
+  it('records the actual launch error and keeps the instruction after failure', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+    });
+    await updateSessionInstruction('project-session', created.id, 'Do not lose this instruction.');
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode', binary: 'opencode', installed: true, canLaunch: true,
+      supportsResume: true, supportsModelRouting: true, version: '1.15.10',
+      capabilities: [], error: null,
+    });
+    vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue({
+      started: false, pid: 99, exitCode: 17, stderr: 'permission denied',
+    });
+
+    await expect(launchExecutionSessionThroughOpenCode('project-session', created.id, 'start', 'complete task'))
+      .rejects.toThrow('exit code 17: permission denied');
+    const failed = await getExecutionSession('project-session', created.id);
+    expect(failed?.status).toBe('failed');
+    expect(failed?.userInstruction).toBe('Do not lose this instruction.');
+    expect((await listSessionEvents('project-session', created.id)).some((event) => event.content.includes('permission denied'))).toBe(true);
   });
 });

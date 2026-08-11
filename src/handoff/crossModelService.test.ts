@@ -155,7 +155,7 @@ beforeEach(async () => {
     if (command === 'opencode_models') return {
       runtime: 'opencode', models: [targetModel], source: 'opencode-cli', warning: null,
     };
-    if (command === 'launch_runtime') return undefined;
+    if (command === 'launch_runtime') return { started: true, pid: 1234, exitCode: null, stderr: null };
     throw new Error(`Unexpected IPC command: ${command}`);
   });
   await createSource();

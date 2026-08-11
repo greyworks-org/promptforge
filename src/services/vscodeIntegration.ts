@@ -58,6 +58,16 @@ export async function getVscodeConnection(projectId: string, sessionId: string):
   };
 }
 
+export interface VscodeLaunchResult {
+  projectRoot: string;
+  application: string;
+}
+
+/** Native launch only. Rust resolves and validates the registered project root. */
+export async function openVscode(projectId: string): Promise<VscodeLaunchResult> {
+  return invokeIpc<VscodeLaunchResult>('open_vscode', { projectId });
+}
+
 /** Publishes a derived view only; SQLite remains the canonical session store. */
 export async function publishVscodeSessionView(
   projectId: string,

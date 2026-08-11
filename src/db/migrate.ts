@@ -6,6 +6,7 @@ import semanticContextSql from './migrations/0005_semantic_context.sql?raw';
 import executionSessionsSql from './migrations/0006_execution_sessions.sql?raw';
 import runtimeMetadataSql from './migrations/0007_runtime_metadata.sql?raw';
 import executionHandoffsSql from './migrations/0008_execution_handoffs.sql?raw';
+import sessionControlPathSql from './migrations/0009_session_control_path.sql?raw';
 
 export interface Migration {
   version: number;
@@ -22,6 +23,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 6, name: '0006_execution_sessions', sql: executionSessionsSql },
   { version: 7, name: '0007_runtime_metadata', sql: runtimeMetadataSql },
   { version: 8, name: '0008_execution_handoffs', sql: executionHandoffsSql },
+  { version: 9, name: '0009_session_control_path', sql: sessionControlPathSql },
 ];
 
 export interface MigrationReport {
