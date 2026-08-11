@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use serde::Serialize;
@@ -27,6 +28,43 @@ fn runtime_binary(runtime: &str) -> Option<&'static str> {
     }
 }
 
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else { return false };
+    if !metadata.is_file() { return false; }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return metadata.permissions().mode() & 0o111 != 0;
+    }
+    #[cfg(not(unix))]
+    { true }
+}
+
+fn user_local_runtime_path(runtime: &str, home: Option<&Path>) -> Option<PathBuf> {
+    if runtime != "opencode" { return None; }
+    Some(home?.join(".opencode").join("bin").join("opencode"))
+}
+
+/// Resolve only explicit PATH entries, then the documented user-local OpenCode location.
+/// No directory scanning or recursive HOME search is performed.
+fn resolve_runtime_executable(
+    runtime: &str,
+    path_env: Option<&OsStr>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    let binary = runtime_binary(runtime)?;
+    if let Some(path_env) = path_env {
+        for directory in env::split_paths(path_env).filter(|path| !path.as_os_str().is_empty()) {
+            let candidate = directory.join(binary);
+            if is_executable_file(&candidate) { return Some(candidate); }
+        }
+    }
+    if let Some(candidate) = user_local_runtime_path(runtime, home) {
+        if is_executable_file(&candidate) { return Some(candidate); }
+    }
+    Some(PathBuf::from(binary))
+}
+
 fn runtime_capabilities(runtime: &str) -> (bool, bool, Vec<String>) {
     if runtime == "opencode" {
         return (
@@ -46,10 +84,28 @@ fn runtime_capabilities(runtime: &str) -> (bool, bool, Vec<String>) {
 /// Detect a known runtime without exposing PATH or executing shell syntax.
 #[tauri::command]
 pub fn runtime_status(runtime: String) -> Result<RuntimeStatus, String> {
+    let path_env = env::var_os("PATH");
+    let home = env::var_os("HOME");
+    runtime_status_with_environment(runtime, path_env.as_deref(), home.as_deref().map(Path::new))
+}
+
+fn runtime_status_with_environment(
+    runtime: String,
+    path_env: Option<&OsStr>,
+    home: Option<&Path>,
+) -> Result<RuntimeStatus, String> {
     let binary = runtime_binary(&runtime)
         .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let (supports_resume, supports_model_routing, capabilities) = runtime_capabilities(&runtime);
-    match Command::new(binary).arg("--version").output() {
+    let executable = resolve_runtime_executable(&runtime, path_env, home)
+        .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
+    let mut version_command = Command::new(&executable);
+    version_command.arg("--version");
+    match path_env {
+        Some(path) => { version_command.env("PATH", path); }
+        None => { version_command.env_remove("PATH"); }
+    }
+    match version_command.output() {
         Ok(output) if output.status.success() => {
             let text = String::from_utf8_lossy(&output.stdout);
             let version = text.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(String::from);
@@ -217,7 +273,11 @@ pub fn opencode_models(project_root: String) -> Result<OpenCodeModelDiscovery, S
     }
 
     let configured = configured_model_ref(&root);
-    let command = Command::new("opencode")
+    let path_env = env::var_os("PATH");
+    let home = env::var_os("HOME");
+    let executable = resolve_runtime_executable("opencode", path_env.as_deref(), home.as_deref().map(Path::new))
+        .ok_or_else(|| "Unknown runtime: opencode".to_string())?;
+    let command = Command::new(executable)
         .arg("models")
         .current_dir(&root)
         .output();
@@ -328,7 +388,11 @@ pub fn launch_runtime(
         return Err(format!("Not a directory: {}", project_root));
     }
     let binary = runtime_binary(&runtime).ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
-    let mut command = Command::new(binary);
+    let path_env = env::var_os("PATH");
+    let home = env::var_os("HOME");
+    let executable = resolve_runtime_executable(&runtime, path_env.as_deref(), home.as_deref().map(Path::new))
+        .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
+    let mut command = Command::new(executable);
     command.current_dir(&cwd);
     command.args(runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?);
 
@@ -384,6 +448,26 @@ pub fn launch_cli(binary_path: String, project_root: String) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("promptforge-{}-{}-{}", label, std::process::id(), nonce))
+    }
+
+    fn write_executable(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"#!/bin/sh\nprintf 'OpenCode 1.15.10\\n'\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+    }
 
     #[test]
     fn parses_plain_and_ansi_model_refs_without_duplicates() {
@@ -463,6 +547,52 @@ mod tests {
         assert!(status.supports_resume);
         assert!(status.supports_model_routing);
         assert!(status.capabilities.contains(&"structured-run-events".into()));
+    }
+
+    #[test]
+    fn runtime_status_discovers_an_executable_from_path() {
+        let root = test_root("path");
+        let executable = root.join("bin/opencode");
+        write_executable(&executable);
+
+        let status = runtime_status_with_environment("opencode".into(), Some(root.join("bin").as_os_str()), None).unwrap();
+
+        assert!(status.installed);
+        assert_eq!(status.version.as_deref(), Some("OpenCode 1.15.10"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_status_discovers_the_user_local_opencode_installation_without_path() {
+        let home = test_root("home");
+        let executable = home.join(".opencode/bin/opencode");
+        write_executable(&executable);
+
+        let status = runtime_status_with_environment("opencode".into(), Some(Path::new("/path-without-opencode").as_os_str()), Some(&home)).unwrap();
+
+        assert!(status.installed);
+        assert_eq!(status.version.as_deref(), Some("OpenCode 1.15.10"));
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn missing_opencode_remains_not_detected() {
+        let home = test_root("missing");
+        std::fs::create_dir_all(&home).unwrap();
+        let status = runtime_status_with_environment("opencode".into(), Some(Path::new("/path-without-opencode").as_os_str()), Some(&home)).unwrap();
+
+        assert!(!status.installed);
+        assert!(!status.can_launch);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn user_local_path_is_derived_from_home_without_a_user_specific_literal() {
+        assert_eq!(
+            user_local_runtime_path("opencode", Some(Path::new("/Users/example"))),
+            Some(PathBuf::from("/Users/example/.opencode/bin/opencode")),
+        );
+        assert_eq!(user_local_runtime_path("opencode", None), None);
     }
 
     #[test]
