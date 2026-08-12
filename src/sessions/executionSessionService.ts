@@ -180,6 +180,18 @@ export async function appendSessionEvent(
   return event;
 }
 
+/** Persist local checkpoint knowledge independently of runtime execution state. */
+export async function saveSessionCheckpoint(
+  projectId: string,
+  sessionId: string,
+  content: string,
+): Promise<SessionEvent> {
+  const normalized = content.trim();
+  if (normalized === '') throw new Error('Checkpoint knowledge must not be empty.');
+  if (normalized.length > 20000) throw new Error('Checkpoint knowledge is too long.');
+  return appendSessionEvent(projectId, sessionId, 'user_note', normalized);
+}
+
 export async function switchSessionRuntime(
   projectId: string,
   sessionId: string,
@@ -286,7 +298,9 @@ export function deriveExecutionSessionControls(session: ExecutionSession, events
     canStart: opencode && !terminal && !hasLaunch,
     canResume: opencode && !terminal && hasLaunch
       && ['paused', 'interrupted', 'reconciled', 'external'].includes(session.status),
-    canCheckpoint: !terminal,
+    // Checkpoint knowledge is local project/session management data. It stays
+    // writable after runtime completion so the user can prepare continuation.
+    canCheckpoint: true,
   };
 }
 

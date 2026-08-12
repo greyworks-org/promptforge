@@ -23,6 +23,8 @@ interface DirEntry {
 interface ScopedFsMetadata {
   exists: boolean;
   isDir: boolean;
+  isFile: boolean;
+  readable: boolean;
 }
 
 /** Resolve a projectId to its canonical root path. */

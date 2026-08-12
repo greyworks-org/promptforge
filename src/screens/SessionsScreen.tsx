@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   finishExecutionSession,
-  appendSessionEvent,
   getExecutionSession,
   getExecutionSessionView,
   launchExecutionSessionThroughOpenCode,
@@ -9,6 +8,7 @@ import {
   reconcileProjectSessions,
   renderSessionContinuation,
   renderSessionTask,
+  saveSessionCheckpoint,
   selectOpenCodeModel,
   switchSessionRuntime,
   updateSessionInstruction,
@@ -18,6 +18,7 @@ import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectG
 import {
   listProjectContextDocuments,
   removeProjectContextDocument,
+  projectContextPathInputError,
   selectProjectContextDocument,
 } from '../services/projectContextService';
 import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
@@ -43,6 +44,9 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [prompt, setPrompt] = useState('');
   const [newInstruction, setNewInstruction] = useState('');
   const [note, setNote] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const savingNoteRef = useRef(false);
+  const [checkpointError, setCheckpointError] = useState<string | null>(null);
   const [contextPath, setContextPath] = useState('');
   const [contextDocs, setContextDocs] = useState<string[]>([]);
   const [contextError, setContextError] = useState<string | null>(null);
@@ -121,6 +125,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const select = async (sessionId: string) => {
     setSelectedId(sessionId);
     setLaunchFeedback(null);
+    setNote('');
+    setCheckpointError(null);
     try {
       const nextSession = sessions.find((session) => session.id === sessionId);
       if (nextSession?.runtime === 'opencode') {
@@ -207,14 +213,33 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   };
 
   const saveNote = async () => {
-    if (!selected || note.trim() === '') return;
+    if (!selected || note.trim() === '' || savingNoteRef.current) return;
+    const sessionId = selected.id;
+    const checkpoint = note;
+    savingNoteRef.current = true;
+    setSavingNote(true);
+    setCheckpointError(null);
     try {
-      await appendSessionEvent(projectId, selected.id, 'user_note', note.trim(), selected.runtime);
+      await saveSessionCheckpoint(projectId, sessionId, checkpoint);
       setNote('');
-      await select(selected.id);
-      await load();
+      const [savedSession, savedEvents, savedPrompt] = await Promise.all([
+        getExecutionSession(projectId, sessionId),
+        listSessionEvents(projectId, sessionId),
+        renderSessionContinuation(projectId, sessionId),
+      ]);
+      if (savedSession !== null) {
+        setSessions((current) => current.map((session) => session.id === sessionId ? savedSession : session));
+      }
+      setEvents(savedEvents);
+      setPrompt(savedPrompt);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Session note could not be saved.');
+      const message = err instanceof Error ? err.message : 'Session note could not be saved.';
+      setCheckpointError(message);
+      setError(message);
+    } finally {
+      savingNoteRef.current = false;
+      setSavingNote(false);
     }
   };
 
@@ -256,6 +281,8 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   };
 
   const latestLaunchEvent = [...events].reverse().find((event) => event.kind === 'runtime_launch' || event.kind === 'runtime_failure');
+  const contextPathValidationError = projectContextPathInputError(contextPath);
+  const canAttemptContextDocument = contextPath.trim() !== '' && contextPathValidationError === null;
   const selectedBindingMismatch = selected !== null && (
     selected.projectId !== projectId
     || registeredRoot === null
@@ -371,10 +398,10 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 <p className="text-xs font-medium text-sky-950">Project context documents</p>
                 <p className="mt-1 text-[11px] text-sky-800">Selected repository files are read-only references. Paths are stored relative to the registered project.</p>
                 <div className="mt-2 flex gap-2">
-                  <input value={contextPath} onChange={(event) => setContextPath(event.target.value)} className="min-w-0 flex-1 rounded border border-sky-200 bg-white px-2 py-1.5 text-xs" placeholder="docs/offerpath-v2/offerpath-source-of-truth.md" aria-label="Project context document path" />
-                  <button type="button" onClick={() => void addContextDocument()} disabled={contextPath.trim() === ''} className="rounded border border-sky-300 px-2 py-1 text-xs text-sky-800 disabled:opacity-50">Add document</button>
+                  <input value={contextPath} onChange={(event) => { const value = event.target.value; setContextPath(value); setContextError(projectContextPathInputError(value)); }} className="min-w-0 flex-1 rounded border border-sky-200 bg-white px-2 py-1.5 text-xs" placeholder="docs/offerpath-v2/offerpath-source-of-truth.md" aria-label="Project context document path" />
+                  <button type="button" onClick={() => void addContextDocument()} disabled={!canAttemptContextDocument} className="rounded border border-sky-300 px-2 py-1 text-xs text-sky-800 disabled:opacity-50">Add document</button>
                 </div>
-                {contextError && <p className="mt-2 text-[11px] text-red-700" role="alert">{contextError}</p>}
+                {(contextError ?? contextPathValidationError) && <p className="mt-2 text-[11px] text-red-700" role="alert">{contextError ?? contextPathValidationError}</p>}
                 <div className="mt-2 space-y-1 text-xs text-sky-900">
                   {contextDocs.length === 0 && <p className="text-sky-700">No project context documents selected.</p>}
                   {contextDocs.map((path) => <div key={path} className="flex items-center justify-between gap-2"><code>{path}</code><button type="button" onClick={() => void removeContextDocument(path)} className="text-[11px] text-red-700">Remove</button></div>)}
@@ -389,8 +416,9 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
               <div className="grid gap-2">
                 <label htmlFor="session-note" className="text-xs font-medium">Add local checkpoint knowledge</label>
-                <textarea id="session-note" value={note} onChange={(event) => setNote(event.target.value)} rows={2} className="rounded border border-zinc-300 px-2 py-1.5 text-xs" placeholder="What did the runtime observe or validate?" />
-                <button type="button" onClick={() => void saveNote()} disabled={note.trim() === ''} className="w-fit rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50">Save checkpoint</button>
+                <textarea id="session-note" value={note} onChange={(event) => { setNote(event.target.value); setCheckpointError(null); }} rows={2} className="rounded border border-zinc-300 px-2 py-1.5 text-xs" placeholder="What did the runtime observe or validate?" />
+                {checkpointError && <p className="text-[11px] text-red-700" role="alert">{checkpointError}</p>}
+                <button type="button" onClick={() => void saveNote()} disabled={note.trim() === '' || savingNote} className="w-fit rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50">{savingNote ? 'Saving checkpoint…' : 'Save checkpoint'}</button>
               </div>
 
               <details open className="rounded-md border border-zinc-200 bg-zinc-50 p-3">

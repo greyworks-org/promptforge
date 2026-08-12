@@ -9,6 +9,8 @@ import type { QueryRunner } from '../db/runner';
 interface ScopedFsMetadata {
   exists: boolean;
   isDir: boolean;
+  isFile: boolean;
+  readable: boolean;
 }
 
 let testRunner: QueryRunner | null = null;
@@ -24,16 +26,19 @@ async function repository() {
 /** Keep the stored allowlist portable and prevent filesystem escape at the UI boundary. */
 export function normalizeProjectContextPath(raw: string): string {
   const value = raw.trim().replaceAll('\\', '/');
-  if (value === '' || value.startsWith('/') || value.includes('\0')) {
+  if (
+    value === ''
+    || value.startsWith('/')
+    || /^[A-Za-z]:\//.test(value)
+    || value.includes('\0')
+  ) {
     throw new Error('Context document path must be a non-empty relative path.');
   }
   const parts: string[] = [];
   for (const part of value.split('/')) {
     if (part === '' || part === '.') continue;
     if (part === '..') {
-      if (parts.length === 0) throw new Error('Context document path must stay inside the project.');
-      parts.pop();
-      continue;
+      throw new Error('Context document path cannot contain parent traversal (..).');
     }
     parts.push(part);
   }
@@ -44,6 +49,17 @@ export function normalizeProjectContextPath(raw: string): string {
   return normalized;
 }
 
+/** Return an inline validation error without probing the filesystem. */
+export function projectContextPathInputError(raw: string): string | null {
+  if (raw.trim() === '') return null;
+  try {
+    normalizeProjectContextPath(raw);
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Context document path is invalid.';
+  }
+}
+
 export async function listProjectContextDocuments(projectId: string): Promise<ProjectContextDocument[]> {
   return (await repository()).listByProject(projectId);
 }
@@ -52,7 +68,8 @@ export async function selectProjectContextDocument(projectId: string, rawPath: s
   const relPath = normalizeProjectContextPath(rawPath);
   const metadata = await invokeIpc<ScopedFsMetadata>('fs_metadata_scoped', { projectId, path: relPath });
   if (!metadata.exists) throw new Error(`Context document does not exist: ${relPath}`);
-  if (metadata.isDir) throw new Error(`Context document must be a file: ${relPath}`);
+  if (metadata.isDir || !metadata.isFile) throw new Error(`Context document must be a regular file: ${relPath}`);
+  if (!metadata.readable) throw new Error(`Context document is not readable: ${relPath}`);
   return (await repository()).add(projectId, relPath);
 }
 

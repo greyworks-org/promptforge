@@ -1,8 +1,8 @@
 import { invokeIpc } from '../ipc';
 import {
-  appendSessionEvent,
   getExecutionSessionView,
   launchExecutionSessionThroughOpenCode,
+  saveSessionCheckpoint,
   type ExecutionSessionView,
 } from '../sessions/executionSessionService';
 import {
@@ -180,7 +180,7 @@ export async function processVscodeSessionAction(): Promise<void> {
     if (action.action === 'checkpoint') {
       const note = action.note?.trim() ?? '';
       if (!view.controls.canCheckpoint || note === '') throw new Error('A non-empty checkpoint note is required.');
-      await appendSessionEvent(action.projectId, action.sessionId, 'user_note', note, view.session.runtime);
+      await saveSessionCheckpoint(action.projectId, action.sessionId, note);
     } else {
       if (action.action === 'start' && !view.controls.canStart) throw new Error('This OpenCode session is not eligible to start.');
       if (action.action === 'resume' && !view.controls.canResume) throw new Error('This OpenCode session is not eligible to resume.');

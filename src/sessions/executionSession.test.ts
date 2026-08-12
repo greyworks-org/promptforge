@@ -10,12 +10,14 @@ import {
   appendSessionEvent,
   deriveExecutionSessionControls,
   ensureExecutionSession,
+  finishExecutionSession,
   getExecutionSession,
   launchExecutionSessionThroughOpenCode,
   listSessionEvents,
   listExecutionSessions,
   renderSessionContinuation,
   renderSessionTask,
+  saveSessionCheckpoint,
   selectOpenCodeModel,
   startExecutionSession,
   switchSessionRuntime,
@@ -124,7 +126,7 @@ describe('execution session continuity', () => {
     };
     expect(deriveExecutionSessionControls(created, [launch]).canStart).toBe(false);
     expect(deriveExecutionSessionControls({ ...created, status: 'paused' }, [launch]).canResume).toBe(true);
-    expect(deriveExecutionSessionControls({ ...created, status: 'completed' }, [launch]).canCheckpoint).toBe(false);
+    expect(deriveExecutionSessionControls({ ...created, status: 'completed' }, [launch]).canCheckpoint).toBe(true);
   });
 
   it('persists canonical state and transcript across runtime switching', async () => {
@@ -356,6 +358,42 @@ describe('execution session continuity', () => {
     expect(composed).toContain('docs/offerpath-v2/offerpath-source-of-truth.md');
     expect(composed).toContain('## New user instruction\nImplement the next safe slice.');
     expect(await renderSessionContinuation('project-session', created.id)).not.toContain('New user instruction');
+  });
+
+  it('persists checkpoint knowledge for the current project/session and reads it back', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-offerpath', runtime: 'opencode',
+      task: { ...task, project_id: 'project-offerpath' },
+      memory: { ...memory, projectId: 'project-offerpath' }, git,
+    });
+
+    await saveSessionCheckpoint('project-offerpath', created.id, 'Offerpath checkpoint persisted.');
+    const events = await listSessionEvents('project-offerpath', created.id);
+    expect(events.at(-1)).toMatchObject({ kind: 'user_note', content: 'Offerpath checkpoint persisted.' });
+    expect((await renderSessionContinuation('project-offerpath', created.id))
+      .includes('Offerpath checkpoint persisted.')).toBe(true);
+    const other = await startExecutionSession({
+      projectId: 'project-other', runtime: 'codex',
+      task: { ...task, project_id: 'project-other' },
+      memory: { ...memory, projectId: 'project-other' }, git,
+    });
+    expect((await listSessionEvents('project-other', other.id))
+      .some((event) => event.content === 'Offerpath checkpoint persisted.')).toBe(false);
+  });
+
+  it('keeps empty checkpoint writes disabled at the service boundary and permits completed knowledge updates', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'claude-code', task, memory, git,
+    });
+    await finishExecutionSession('project-session', created.id, 'completed');
+
+    await expect(saveSessionCheckpoint('project-session', created.id, '  '))
+      .rejects.toThrow('must not be empty');
+    await saveSessionCheckpoint('project-session', created.id, 'Post-completion knowledge.');
+    expect((await listSessionEvents('project-session', created.id)).at(-1)?.content)
+      .toBe('Post-completion knowledge.');
+    expect(deriveExecutionSessionControls({ ...(await getExecutionSession('project-session', created.id))!, status: 'completed' }, []).canCheckpoint)
+      .toBe(true);
   });
 
   it('records the actual launch error and keeps the instruction after failure', async () => {

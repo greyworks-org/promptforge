@@ -32,7 +32,7 @@ describe('migration regression — partially applied DDL', () => {
     // Now run the full migration set. 0003's ADD COLUMN target_model
     // should be skipped (duplicate), the rest applied normally.
     const report = await runMigrations(runner);
-    expect(report.currentVersion).toBe(9);
+    expect(report.currentVersion).toBe(10);
 
     // Verify all 0003 columns exist.
     const cols = sqlite.prepare('PRAGMA table_info(compilations)').all() as Array<{ name: string }>;
@@ -65,7 +65,7 @@ describe('migration regression — partially applied DDL', () => {
 
     // Full run should succeed.
     const report = await runMigrations(runner);
-    expect(report.currentVersion).toBe(9);
+    expect(report.currentVersion).toBe(10);
   });
 
   it('handles already-created table gracefully', async () => {
@@ -91,6 +91,6 @@ describe('migration regression — partially applied DDL', () => {
 
     // 0004 should skip CREATE TABLE and still record the migration.
     const report = await runMigrations(runner);
-    expect(report.currentVersion).toBe(9);
+    expect(report.currentVersion).toBe(10);
   });
 });

@@ -139,13 +139,10 @@ fn normalize_relative(target: &str) -> Result<Vec<String>, String> {
         match component {
             "" | "." => continue,
             ".." => {
-                if stack.is_empty() {
-                    return Err(format!(
-                        "Path escape blocked: '{}' escapes above the project root",
-                        target
-                    ));
-                }
-                stack.pop();
+                return Err(format!(
+                    "Path escape blocked: '{}' contains parent traversal",
+                    target
+                ));
             }
             _ => stack.push(component.to_string()),
         }
@@ -234,6 +231,8 @@ fn resolve_scoped(project_root: &Path, target: &str) -> Result<PathBuf, String> 
 pub struct FsMetadata {
     pub exists: bool,
     pub is_dir: bool,
+    pub is_file: bool,
+    pub readable: bool,
     pub canonical_path: Option<String>,
 }
 
@@ -287,11 +286,15 @@ pub fn fs_metadata(path: String) -> Result<FsMetadata, String> {
         Ok(canonical) => Ok(FsMetadata {
             exists: true,
             is_dir: canonical.is_dir(),
+            is_file: canonical.is_file(),
+            readable: canonical.is_file() && std::fs::File::open(&canonical).is_ok(),
             canonical_path: Some(canonical.to_string_lossy().into_owned()),
         }),
         Err(_) => Ok(FsMetadata {
             exists: requested.exists(),
             is_dir: false,
+            is_file: false,
+            readable: false,
             canonical_path: None,
         }),
     }
@@ -323,11 +326,15 @@ pub fn fs_metadata_scoped(
         Ok(metadata) => Ok(FsMetadata {
             exists: true,
             is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            readable: metadata.is_file() && std::fs::File::open(&resolved).is_ok(),
             canonical_path: None,
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FsMetadata {
             exists: false,
             is_dir: false,
+            is_file: false,
+            readable: false,
             canonical_path: None,
         }),
         Err(error) => Err(format!("Could not inspect {}: {}", path, error)),
@@ -496,6 +503,8 @@ mod tests {
         let meta = fs_metadata(file.to_string_lossy().into_owned()).expect("command runs");
         assert!(meta.exists);
         assert!(!meta.is_dir);
+        assert!(meta.is_file);
+        assert!(meta.readable);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -600,9 +609,9 @@ mod tests {
     // -- normalize_relative --
 
     #[test]
-    fn normalize_collapses_dot_dot() {
-        let result = normalize_relative("a/b/../c").unwrap();
-        assert_eq!(result, vec!["a", "c"]);
+    fn normalize_rejects_any_parent_traversal() {
+        let err = normalize_relative("a/b/../c").unwrap_err();
+        assert!(err.contains("parent traversal"), "got: {}", err);
     }
 
     #[test]
