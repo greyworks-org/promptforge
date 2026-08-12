@@ -1,5 +1,6 @@
 import type { TaskSpec } from '../schemas/taskspec';
 import type { ExecutionProfile } from '../profiles/registry';
+import { deriveFunctionalVerificationPlan, isVisualReviewApplicable } from '../services/verification';
 
 /**
  * Shared rendering helpers (Phase 7).
@@ -336,6 +337,7 @@ export function finalReportBlock(items: string[]): string {
 export function completionControlBlock(task: TaskSpec): string {
   const contract = task.execution_contract;
   const quality = task.quality_profile;
+  const functionalPlan = deriveFunctionalVerificationPlan(task);
   const lines: string[] = [
     '## Completion control',
     '',
@@ -346,24 +348,30 @@ export function completionControlBlock(task: TaskSpec): string {
     ...task.acceptance_criteria.map((item) => `- ${sanitizeHeading(item)}`),
   ];
 
-  if (contract?.core_loop && contract.core_loop.length > 0) {
-    lines.push('', 'Required core/user flow:', ...contract.core_loop.map((item) => `- ${sanitizeHeading(item)}`));
+  if (functionalPlan.applicable) {
+    lines.push('', 'Functional golden-path verification (required when runnable):');
+    if (functionalPlan.source === 'acceptance_criteria') {
+      lines.push('- The critical acceptance criteria above are the required functional path.');
+    } else {
+      lines.push(...functionalPlan.requirements.map((item) => `- ${sanitizeHeading(item)}`));
+    }
+    lines.push('- Record each result as VERIFIED with direct evidence, or NOT VERIFIED; do not convert assumptions into evidence.');
   }
-  if (contract?.verification && contract.verification.length > 0) {
+  if (contract?.verification && contract.verification.length > 0 && functionalPlan.source !== 'execution_contract.verification') {
     lines.push('', 'Execution-contract verification:', ...contract.verification.map((item) => `- ${sanitizeHeading(item)}`));
   }
   if (quality?.completion_checks && quality.completion_checks.length > 0) {
     lines.push('', 'Quality-profile completion checks:', ...quality.completion_checks.map((item) => `- ${sanitizeHeading(item)}`));
   }
-  if (task.test_plan.length > 0) {
+  if (task.test_plan.length > 0 && functionalPlan.source !== 'test_plan') {
     lines.push('', 'Task test plan:', ...task.test_plan.map((item) => `- ${sanitizeHeading(item)}`));
   }
   if (task.stop_conditions.length > 0) {
     lines.push('', 'Stop conditions:', ...task.stop_conditions.map((item) => `- ${sanitizeHeading(item)}`));
     lines.push('- If a stop condition applies, the task cannot be READY until it is resolved or explicitly accepted by the user.');
   }
-  if (quality?.visual_review === true) {
-    lines.push('', 'Required subjective review:', '- Product/visual review remains a human decision; do not claim READY until it is recorded.');
+  if (isVisualReviewApplicable(task)) {
+    lines.push('', 'Required visual QA:', '- Use the existing local Qwen-MM Core `read_image` capability only for the relevant rendered surface.', '- Review structured TaskSpec criteria and return only PASS or FAIL with at most five concrete issues.', '- If the rendered surface or capability is unavailable, record NOT VERIFIED; do not claim READY.');
   }
 
   lines.push(
@@ -389,6 +397,8 @@ export function completionControlBlock(task: TaskSpec): string {
     'Include only when genuinely required.',
     '',
     'Do not report mostly done, should work, partial success, or an equivalent successful state.',
+    'If verification finds concrete failures, allow at most one targeted corrective pass containing only failed criteria, evidence, relevant files/surface, and preserve/scope constraints. Then rerun only failed/relevant verification and one final regression check.',
+    'Do not start a second automatic corrective pass or an open-ended debug loop.',
   );
   return lines.join('\n');
 }

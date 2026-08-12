@@ -57,6 +57,12 @@ function evidenceFor(task: TaskSpec) {
   const values = (items: string[]) => Object.fromEntries(items.map((item) => [item, true]));
   return {
     acceptance: values(gate.acceptanceCriteria),
+    functionalFlow: gate.functionalFlow.map((requirement) => ({
+      requirement,
+      status: 'VERIFIED' as const,
+      evidence: `Fixture flow evidence for: ${requirement}`,
+      source: 'flow' as const,
+    })),
     coreLoop: values(gate.coreLoop),
     verification: values(gate.verification),
     qualityChecks: values(gate.qualityChecks),
@@ -168,6 +174,7 @@ describe('PromptForge v1 Slice 2 scope lock and completion control', () => {
     }, makeTask());
     expect(crossModel).toContain('## Scope lock');
     expect(crossModel).toContain('## Completion control');
+    expect(crossModel).toContain('Functional golden-path verification (required when runnable):');
   });
 
   it('does not add visual completion requirements to backend-only tasks', () => {
