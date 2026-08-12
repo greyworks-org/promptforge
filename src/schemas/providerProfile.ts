@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const jsonModeSchema = z.enum(['auto', 'on', 'off']);
+export const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'maximum']);
 
 /**
  * Non-secret provider profile. The API key is intentionally NOT part of this
@@ -18,12 +19,14 @@ export const providerProfileSchema = z
       temperature: z.number().min(0).max(2),
       maxTokens: z.number().int().positive(),
       timeoutMs: z.number().int().positive(),
+      reasoningEffort: reasoningEffortSchema.optional(),
     }),
   })
   .strict();
 
 export type ProviderProfile = z.infer<typeof providerProfileSchema>;
 export type JsonMode = z.infer<typeof jsonModeSchema>;
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
 /**
  * Base URL policy (mirrors the Rust transport): https for anything remote,
@@ -75,6 +78,6 @@ export function defaultProfile(): ProviderProfile {
     baseUrl: '',
     modelId: '',
     capabilities: { jsonMode: 'auto' },
-    params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000 },
+    params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000, reasoningEffort: 'high' },
   };
 }

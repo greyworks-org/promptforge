@@ -5,8 +5,26 @@ import { open } from '@tauri-apps/plugin-dialog';
  * Normalize any thrown value into a safe, useful Error. Never leaks
  * raw objects, secrets, or "[object Object]" into user-facing messages.
  */
+type IpcErrorClass = 'config' | 'auth' | 'network' | 'http_api';
+
+class IpcError extends Error {
+  readonly class: IpcErrorClass;
+
+  constructor(errorClass: IpcErrorClass, message: string) {
+    super(message);
+    this.name = 'IpcError';
+    this.class = errorClass;
+  }
+}
+
 function normalizeError(err: unknown): Error {
-  if (err instanceof Error) return err;
+  if (err instanceof Error) {
+    const errorClass = (err as Error & { class?: unknown }).class;
+    if (errorClass === 'config' || errorClass === 'auth' || errorClass === 'network' || errorClass === 'http_api') {
+      return new IpcError(errorClass, err.message);
+    }
+    return new Error(err.message);
+  }
   if (typeof err === 'string') return new Error(err);
 
   // Tauri wraps Rust Err(ProviderFailure) as { class, message }.
@@ -14,7 +32,11 @@ function normalizeError(err: unknown): Error {
   try {
     const obj = err as Record<string, unknown>;
     if (typeof obj.message === 'string') {
-      return new Error(obj.message as string);
+      const errorClass = obj.class;
+      if (errorClass === 'config' || errorClass === 'auth' || errorClass === 'network' || errorClass === 'http_api') {
+        return new IpcError(errorClass, obj.message);
+      }
+      return new Error(obj.message);
     }
     // Tauri sometimes wraps errors as a stringified JSON.
     const str = String(err);

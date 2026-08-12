@@ -162,16 +162,25 @@ interface ProviderConfig {
   modelId: string;      // never hardcoded; validated non-empty
   // apiKey intentionally absent here — it lives only in the keychain
   capabilities: { jsonMode: 'auto' | 'on' | 'off' };
-  params: { temperature: number; maxTokens: number; timeoutMs: number };
+  params: {
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'maximum';
+  };
 }
 ```
 
-A single concrete provider ("deepseek-compatible") is implemented for the
-MVP. The interface is the extension point: a future provider = a new
-transport adapter + renderer, no pipeline changes. Model names, URLs and
-auth are configuration, never code constants (spec: "Model adı kodda
-sabitlenmemeli"). Details and all assumptions about the endpoint contract are
-in `docs/DEEPSEEK_INTEGRATION.md`.
+A single concrete provider transport is implemented for the MVP. It preserves
+the legacy compatible request shape for existing endpoints and selects the
+modern Chat Completions fields for the official OpenAI endpoint (`api.openai.com`):
+`max_completion_tokens`, optional `reasoning_effort`, and no non-default
+temperature. When reasoning is requested, the transport reserves an equal
+bounded completion allowance because OpenAI counts hidden reasoning tokens in
+that field. This is a request-shape compatibility branch, not a second
+provider subsystem. Model names, URLs and auth are configuration, never code
+constants (spec: "Model adı kodda sabitlenmemeli"). Details and all
+assumptions about the endpoint contract are in `docs/DEEPSEEK_INTEGRATION.md`.
 
 ## 5. Renderer design
 

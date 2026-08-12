@@ -181,6 +181,7 @@ async function makeProviderCall(
     keychainAccount: keychainAccountFor(profile.id), messages,
     temperature: DRAFT_TEMPERATURE, maxTokens: DRAFT_MAX_TOKENS,
     timeoutMs: profile.params.timeoutMs, jsonMode: 'on',
+    reasoningEffort: profile.params.reasoningEffort ?? 'none',
   });
   const body = JSON.parse(outcome.body) as { choices?: Array<{ message?: { content?: string } }> };
   const content = body.choices?.[0]?.message?.content;

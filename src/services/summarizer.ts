@@ -67,6 +67,7 @@ export async function summarizeDocument(
     maxTokens: SUMMARIZE_MAX_TOKENS,
     timeoutMs: profile.params.timeoutMs,
     jsonMode: 'on',
+    reasoningEffort: profile.params.reasoningEffort ?? 'none',
   });
 
   const body = JSON.parse(outcome.body) as {

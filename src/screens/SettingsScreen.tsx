@@ -45,6 +45,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [jsonMode, setJsonMode] = useState<'auto' | 'on' | 'off'>('auto');
+  const [reasoningEffort, setReasoningEffort] = useState<'none' | 'low' | 'medium' | 'high' | 'maximum'>('high');
 
   const [loading, setLoading] = useState(true);
   const [keyState, setKeyState] = useState<KeyState>('unknown');
@@ -77,6 +78,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
       setBaseUrl(profile.baseUrl);
       setModelId(profile.modelId);
       setJsonMode(profile.capabilities.jsonMode);
+      setReasoningEffort(profile.params.reasoningEffort ?? 'high');
       setLoading(false);
       void refreshKeyState();
     };
@@ -92,7 +94,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     baseUrl: baseUrl.trim(),
     modelId: modelId.trim(),
     capabilities: { jsonMode },
-    params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000 },
+    params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000, reasoningEffort },
   });
 
   const onSave = async () => {
@@ -149,7 +151,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
       baseUrl: urlCheck.value,
       modelId: modelId.trim(),
       capabilities: { jsonMode },
-      params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000 },
+      params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000, reasoningEffort },
     };
     setBusy('testing');
     try {
@@ -178,7 +180,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
       <h2 className="text-base font-semibold">Provider settings</h2>
       <p className="mt-1 text-sm text-zinc-500">
-        Configure a DeepSeek-compatible endpoint. The API key is stored in the
+        Configure an OpenAI-compatible endpoint. The API key is stored in the
         macOS Keychain only — never in files, databases or logs.
       </p>
 
@@ -251,6 +253,22 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
             </select>
           </label>
         </div>
+
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Reasoning effort</span>
+          <select
+            className={inputClass}
+            value={reasoningEffort}
+            onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
+          >
+            <option value="none">none — provider default</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="maximum">maximum</option>
+          </select>
+          <span className="text-xs text-zinc-400">Used when the endpoint supports reasoning controls; ignored for legacy-compatible endpoints.</span>
+        </label>
       </div>
 
       {formErrors.length > 0 && (

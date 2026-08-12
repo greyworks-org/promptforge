@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::keychain::SecretStore;
-use crate::provider::{send_chat, ChatMessage, ChatOutcome, ProviderFailure};
+use crate::provider::{send_chat_with_options, ChatMessage, ChatOutcome, ProviderFailure};
 use crate::AppState;
 
 /// Command body, testable without the Tauri dispatcher. The API key is read
@@ -17,12 +17,13 @@ pub async fn run_chat(
     max_tokens: u32,
     timeout_ms: u64,
     json_mode: &str,
+    reasoning_effort: Option<&str>,
 ) -> Result<ChatOutcome, ProviderFailure> {
     if model_id.trim().is_empty() {
         return Err(ProviderFailure::config("Model ID is required — set it in Settings."));
     }
 
-    send_chat(
+    send_chat_with_options(
         base_url,
         model_id.trim(),
         Some(api_key),
@@ -31,6 +32,7 @@ pub async fn run_chat(
         max_tokens,
         timeout_ms,
         json_mode == "on",
+        reasoning_effort,
     )
     .await
 }
@@ -102,6 +104,7 @@ pub async fn provider_chat(
     max_tokens: u32,
     timeout_ms: u64,
     json_mode: String,
+    reasoning_effort: Option<String>,
 ) -> Result<ChatOutcome, ProviderFailure> {
     let api_key = resolve_key(state.secrets.as_ref(), &state.key_cache, &keychain_account, &base_url)?;
 
@@ -114,6 +117,7 @@ pub async fn provider_chat(
         max_tokens,
         timeout_ms,
         &json_mode,
+        reasoning_effort.as_deref(),
     )
     .await
 }
@@ -137,6 +141,7 @@ mod tests {
             50,
             1000,
             "off",
+            None,
         )
         .await
         .unwrap_err();
@@ -154,6 +159,7 @@ mod tests {
             50,
             1000,
             "off",
+            None,
         )
         .await
         .unwrap_err();

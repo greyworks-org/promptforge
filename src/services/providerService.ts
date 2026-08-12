@@ -116,6 +116,9 @@ export async function testConnection(profile: ProviderProfile): Promise<Connecti
       maxTokens: CONNECTION_TEST_MAX_TOKENS,
       timeoutMs: profile.params.timeoutMs,
       jsonMode: jsonModeRequested ? 'on' : 'off',
+      // Connection testing verifies reachability and response parsing; do not
+      // spend the small probe budget on hidden reasoning tokens.
+      reasoningEffort: 'none',
     });
     return interpretOutcome(outcome, jsonModeRequested);
   } catch (err) {

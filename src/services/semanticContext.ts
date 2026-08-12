@@ -222,6 +222,7 @@ export async function refreshSemanticContextIfNeeded(input: SemanticRefreshInput
       maxTokens: Math.min(profile.params.maxTokens, 1200),
       timeoutMs: profile.params.timeoutMs,
       jsonMode: profile.capabilities.jsonMode === 'off' ? 'off' : 'on',
+      reasoningEffort: profile.params.reasoningEffort ?? 'none',
     });
     const body = JSON.parse(outcome.body) as {
       choices?: Array<{ message?: { content?: unknown } }>;

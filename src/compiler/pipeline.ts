@@ -104,6 +104,7 @@ async function providerCall(
       maxTokens: profile.params.maxTokens,
       timeoutMs: profile.params.timeoutMs,
       jsonMode: jsonMode ? 'on' : 'off',
+      reasoningEffort: profile.params.reasoningEffort ?? 'none',
     },
   );
 

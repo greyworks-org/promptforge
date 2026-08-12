@@ -16,14 +16,15 @@
 ## Progress
 
 - **Current phase:** PromptForge v1 finalization — Slice 1 execution contract compiler complete.
-- **Last validated task:** Stronger compact execution contracts (2026-08-12) — optional execution contract and UI/copy quality profile, bounded delivery slices, project memory/guidance compiler context, shared runtime/handoff rendering, schema fixtures and focused regression coverage. Gates: affected TypeScript 97/97; schema fixtures; typecheck; production build; `git diff --check`.
-- **Current task:** none — Slice 1 completed (2026-08-12); Slice 2 not started.
+- **Last validated task:** OpenAI provider compatibility (2026-08-12) — official OpenAI Chat Completions request shape, configurable reasoning effort, bounded reasoning-aware completion budget, connection probing without expensive reasoning, and safe actionable HTTP/provider error mapping. Live transport evidence: saved Keychain profile reached `gpt-5.6-luna` with HTTP 200, one choice, usage and content present. Gates: focused TypeScript 53/53; relevant Rust 14/14; typecheck; production build; `git diff --check`.
+- **Current task:** none — OpenAI provider compatibility is complete; Slice 1 benchmark audit was stopped before acceptance evaluation per user direction. Slice 2 not started.
 - **Next task:** none recorded — continue only when the next v1 finalization slice is explicitly requested.
 
 ## Decisions (confirmed)
 
 - Drizzle ORM dropped; tauri-plugin-sql + repositories + SQL migrations.
 - Provider HTTP runs in Rust (`provider_chat`); API key never enters the webview.
+- Official OpenAI endpoints keep the existing Chat Completions transport but use `max_completion_tokens`, omit non-default temperature, pass configured `reasoning_effort`, and reserve a bounded equal allowance for hidden reasoning tokens. Connection probes use `reasoning_effort: none`; legacy-compatible endpoints retain `temperature`/`max_tokens` behavior.
 - No hardcoded model names — baseUrl/modelId/key fully configurable.
 - One `.promptforge/project.json` anchor per project; no provider-specific state structures.
 - Two contracts: `schemas/compiler-output.schema.json` → enrichment → `schemas/taskspec.schema.json`; repair bounded to one call.
@@ -79,6 +80,7 @@
 
 ## Last tests & results
 
+- 2026-08-12 · OpenAI provider compatibility: focused TypeScript 53/53 ✓; relevant Rust 14/14 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. Live safe checks: reproduced HTTP 400 `invalid_request_error` / `unsupported_parameter` for legacy `max_tokens`; corrected `gpt-5.6-luna` Chat Completions request returned HTTP 200 with content and usage through the Rust Keychain/provider path.
 - 2026-08-12 · v1 finalization Slice 1: focused compiler/schema/renderer/handoff/continuity tests ✓ 97/97; schema fixtures ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. Full parallel `corepack pnpm test` was 490/492 because of the unrelated SessionsScreen timing failure above; isolated SessionsScreen ✓ 4/4.
 - 2026-08-12 · Sessions persistence/control UI fix: strict scoped regular/readable document probes, inline path validation, project context allowlist persistence/readback/isolation, append-only checkpoint service, terminal-session knowledge management, duplicate-submit guard, and failed-write retention. `corepack pnpm test` ✓ 486/486; focused persistence/UI ✓ 39/39; `corepack pnpm typecheck` ✓; `cargo test --manifest-path src-tauri/Cargo.toml` ✓ 84/84; `corepack pnpm build` ✓; `git diff --check` ✓. `cargo fmt --check` remains a pre-existing unrelated whole-crate formatting failure and was not applied.
 
@@ -114,8 +116,8 @@
 
 ## Git checkpoint
 
-- **Latest commit:** `feat(compiler): add compact execution contracts` (PromptForge v1 finalization Slice 1 checkpoint).
-- **Uncommitted changes:** none after the focused commit.
+- **Latest commit:** pending focused provider-compatibility commit.
+- **Uncommitted changes:** provider compatibility implementation and state update pending commit.
 
 ## Recent history
 

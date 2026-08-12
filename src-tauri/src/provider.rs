@@ -61,8 +61,16 @@ pub fn completions_url(base: &str) -> String {
     format!("{}/chat/completions", base.trim_end_matches('/'))
 }
 
+fn is_openai_endpoint(base: &str) -> bool {
+    url::Url::parse(base)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.eq_ignore_ascii_case("api.openai.com")))
+        .unwrap_or(false)
+}
+
 /// OpenAI-compatible chat completions body. `response_format` is included
 /// only when JSON mode is explicitly on (see docs/DEEPSEEK_INTEGRATION.md).
+#[cfg(test)]
 pub fn build_body(
     model: &str,
     messages: &[ChatMessage],
@@ -70,12 +78,41 @@ pub fn build_body(
     max_tokens: u32,
     json_mode_on: bool,
 ) -> serde_json::Value {
+    build_body_for_endpoint(model, messages, temperature, max_tokens, json_mode_on, false, None)
+}
+
+fn build_body_for_endpoint(
+    model: &str,
+    messages: &[ChatMessage],
+    temperature: f32,
+    max_tokens: u32,
+    json_mode_on: bool,
+    openai_endpoint: bool,
+    reasoning_effort: Option<&str>,
+) -> serde_json::Value {
     let mut body = serde_json::json!({
         "model": model,
         "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
     });
+    if openai_endpoint {
+        let effort = reasoning_effort.filter(|value| *value != "none");
+        // OpenAI counts hidden reasoning tokens inside max_completion_tokens.
+        // Preserve the configured visible-output budget while reserving an
+        // equal bounded allowance for reasoning; legacy endpoints keep their
+        // original max_tokens value unchanged.
+        let completion_budget = if effort.is_some() {
+            max_tokens.saturating_mul(2)
+        } else {
+            max_tokens
+        };
+        body["max_completion_tokens"] = serde_json::json!(completion_budget);
+        if let Some(effort) = effort {
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
+    } else {
+        body["temperature"] = serde_json::json!(temperature);
+        body["max_tokens"] = serde_json::json!(max_tokens);
+    }
     if json_mode_on {
         body["response_format"] = serde_json::json!({ "type": "json_object" });
     }
@@ -96,19 +133,32 @@ pub fn classify_status(status: u16) -> Option<&'static str> {
 
 /// Extracts a short, scrubbed provider error message from an error body.
 /// Falls back to a generic message; never returns the raw body verbatim.
-fn scrub_provider_message(body: &str) -> String {
+fn scrub_provider_message(status: u16, body: &str) -> String {
     let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
-    let message = parsed
+    let error = parsed
         .as_ref()
         .and_then(|v| v.get("error"))
-        .and_then(|e| e.get("message"))
-        .and_then(|m| m.as_str());
-    match message {
-        Some(m) => {
-            let trimmed: String = m.chars().take(200).collect();
-            format!("Provider error: {trimmed}")
-        }
-        None => "Endpoint returned an unexpected error.".to_string(),
+        .and_then(|e| e.as_object());
+    let safe_field = |key: &str| -> Option<String> {
+        error
+            .and_then(|fields| fields.get(key))
+            .and_then(|value| value.as_str())
+            .map(|value| {
+                let trimmed: String = value.chars().take(200).collect();
+                if trimmed.contains("sk-") || trimmed.to_ascii_lowercase().contains("bearer ") {
+                    "[redacted]".to_string()
+                } else {
+                    trimmed
+                }
+            })
+    };
+    let kind = safe_field("code").or_else(|| safe_field("type"));
+    let message = safe_field("message");
+    match (kind, message) {
+        (Some(kind), Some(message)) => format!("HTTP {status} — {kind}: {message}"),
+        (Some(kind), None) => format!("HTTP {status} — {kind}"),
+        (None, Some(message)) => format!("HTTP {status} — Provider error: {message}"),
+        (None, None) => format!("HTTP {status} — Endpoint returned an unexpected error."),
     }
 }
 
@@ -124,6 +174,7 @@ fn network_error(err: &reqwest::Error) -> ProviderFailure {
 /// layer (which read it from the keychain) and is never referenced in any
 /// error message or log.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub async fn send_chat(
     base_url: &str,
     model: &str,
@@ -134,13 +185,47 @@ pub async fn send_chat(
     timeout_ms: u64,
     json_mode_on: bool,
 ) -> Result<ChatOutcome, ProviderFailure> {
+    send_chat_with_options(
+        base_url,
+        model,
+        api_key,
+        messages,
+        temperature,
+        max_tokens,
+        timeout_ms,
+        json_mode_on,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn send_chat_with_options(
+    base_url: &str,
+    model: &str,
+    api_key: Option<String>,
+    messages: Vec<ChatMessage>,
+    temperature: f32,
+    max_tokens: u32,
+    timeout_ms: u64,
+    json_mode_on: bool,
+    reasoning_effort: Option<&str>,
+) -> Result<ChatOutcome, ProviderFailure> {
     let api_key = api_key
         .filter(|k| !k.is_empty())
         .ok_or_else(|| ProviderFailure::config("No API key stored — add one in Settings."))?;
 
     let base = validate_base_url(base_url)?;
     let url = completions_url(&base);
-    let body = build_body(model, &messages, temperature, max_tokens, json_mode_on);
+    let body = build_body_for_endpoint(
+        model,
+        &messages,
+        temperature,
+        max_tokens,
+        json_mode_on,
+        is_openai_endpoint(&base),
+        reasoning_effort,
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(timeout_ms.max(1)))
@@ -162,8 +247,8 @@ pub async fn send_chat(
 
     match classify_status(status) {
         None => Ok(ChatOutcome { status, body: text, latency_ms }),
-        Some("auth") => Err(ProviderFailure::auth("API key rejected — check Settings.")),
-        Some(_) => Err(ProviderFailure::http_api(scrub_provider_message(&text))),
+        Some("auth") => Err(ProviderFailure::auth(scrub_provider_message(status, &text))),
+        Some(_) => Err(ProviderFailure::http_api(scrub_provider_message(status, &text))),
     }
 }
 
@@ -251,12 +336,25 @@ mod tests {
     #[test]
     fn scrubbed_message_keeps_provider_text_short() {
         let body = r#"{"error": {"message": "rate limited"}}"#;
-        assert_eq!(scrub_provider_message(body), "Provider error: rate limited");
+        assert_eq!(scrub_provider_message(429, body), "HTTP 429 — Provider error: rate limited");
         // Non-JSON bodies never leak verbatim.
         assert_eq!(
-            scrub_provider_message("<html>weird</html>"),
-            "Endpoint returned an unexpected error."
+            scrub_provider_message(500, "<html>weird</html>"),
+            "HTTP 500 — Endpoint returned an unexpected error."
         );
+        assert_eq!(
+            scrub_provider_message(400, r#"{"error":{"code":"bad_request","message":"sk-super-secret"}}"#),
+            "HTTP 400 — bad_request: [redacted]"
+        );
+    }
+
+    #[test]
+    fn openai_reasoning_body_uses_modern_completion_fields() {
+        let body = build_body_for_endpoint("gpt-5.6-luna", &message(), 0.2, 200, false, true, Some("high"));
+        assert_eq!(body["max_completion_tokens"], 400);
+        assert_eq!(body["reasoning_effort"], "high");
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("temperature").is_none());
     }
 
     #[tokio::test]

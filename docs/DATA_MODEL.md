@@ -149,7 +149,12 @@ Provider profile shape (stored under `provider.profiles`):
       "modelId": "…",
       "keychainAccount": "promptforge/default",
       "capabilities": { "jsonMode": "auto" },
-      "params": { "temperature": 0.2, "maxTokens": 4096, "timeoutMs": 60000 }
+      "params": {
+        "temperature": 0.2,
+        "maxTokens": 4096,
+        "timeoutMs": 60000,
+        "reasoningEffort": "high"
+      }
     }
   }
 }
