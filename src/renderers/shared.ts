@@ -41,6 +41,37 @@ export function outOfScopeBlock(items: string[]): string {
   return `## Out of scope\n\n${bulletList(items)}`;
 }
 
+/**
+ * Turn the canonical TaskSpec boundary into binding execution instructions.
+ * The lists themselves are rendered by the surrounding sections; this block
+ * explains what the executing agent must do when repository reality conflicts
+ * with the requested work.
+ */
+export function scopeLockBlock(task: TaskSpec): string {
+  const preserve = task.execution_contract?.preserve ?? [];
+  const lines: string[] = [
+    '## Scope lock',
+    '',
+    'Treat the TaskSpec boundary as binding:',
+    '- Work only on changes necessary for the requested outcome and approved scope.',
+    '- Preserve the protected architecture, behavior, data and interfaces listed below.',
+    '- Do not perform unrelated cleanup, refactors, migrations, redesigns or dependency changes.',
+    '- A pre-existing unrelated failure is not permission to fix unrelated code; record it instead.',
+    '- If an out-of-scope issue is required to complete this task safely, stop and surface it as a blocker.',
+    '- Do not start a later delivery slice automatically.',
+    '',
+    'Protected preserve rules:',
+    ...(preserve.length > 0 ? preserve.map((item) => `- ${sanitizeHeading(item)}`) : ['- No additional preserve rules recorded; preserve existing behavior by default.']),
+    '',
+    'When an unrelated finding is discovered, record it exactly as:',
+    'OUT OF SCOPE',
+    'Finding:',
+    'Impact on current task:',
+    'Required to continue: yes/no',
+  ];
+  return lines.join('\n');
+}
+
 /** Format acceptance criteria. */
 export function acceptanceBlock(criteria: string[]): string {
   if (criteria.length === 0) return '';
@@ -295,6 +326,71 @@ export function testPlanBlock(items: string[]): string {
 export function finalReportBlock(items: string[]): string {
   if (items.length === 0) return '';
   return `## Completion report\n\nReport the following on completion:\n\n${bulletList(items)}`;
+}
+
+/**
+ * Derive the compact completion gate from canonical TaskSpec fields.
+ * No new TaskSpec fields are needed: an empty category simply has no
+ * applicable checks.
+ */
+export function completionControlBlock(task: TaskSpec): string {
+  const contract = task.execution_contract;
+  const quality = task.quality_profile;
+  const lines: string[] = [
+    '## Completion control',
+    '',
+    'Do not define success as implemented, tests pass, or build succeeds alone.',
+    'Before reporting a successful completion, collect evidence for every applicable critical check below.',
+    '',
+    'Critical acceptance criteria:',
+    ...task.acceptance_criteria.map((item) => `- ${sanitizeHeading(item)}`),
+  ];
+
+  if (contract?.core_loop && contract.core_loop.length > 0) {
+    lines.push('', 'Required core/user flow:', ...contract.core_loop.map((item) => `- ${sanitizeHeading(item)}`));
+  }
+  if (contract?.verification && contract.verification.length > 0) {
+    lines.push('', 'Execution-contract verification:', ...contract.verification.map((item) => `- ${sanitizeHeading(item)}`));
+  }
+  if (quality?.completion_checks && quality.completion_checks.length > 0) {
+    lines.push('', 'Quality-profile completion checks:', ...quality.completion_checks.map((item) => `- ${sanitizeHeading(item)}`));
+  }
+  if (task.test_plan.length > 0) {
+    lines.push('', 'Task test plan:', ...task.test_plan.map((item) => `- ${sanitizeHeading(item)}`));
+  }
+  if (task.stop_conditions.length > 0) {
+    lines.push('', 'Stop conditions:', ...task.stop_conditions.map((item) => `- ${sanitizeHeading(item)}`));
+    lines.push('- If a stop condition applies, the task cannot be READY until it is resolved or explicitly accepted by the user.');
+  }
+  if (quality?.visual_review === true) {
+    lines.push('', 'Required subjective review:', '- Product/visual review remains a human decision; do not claim READY until it is recorded.');
+  }
+
+  lines.push(
+    '',
+    'Use exactly one completion outcome:',
+    'READY — every applicable critical acceptance, core-flow, verification, quality and test requirement is satisfied with evidence and no critical blocker remains.',
+    'NEEDS HUMAN REVIEW — implementation and objective checks are complete, but a required subjective product/design/user decision remains.',
+    'BLOCKED — a required dependency, missing decision, environment issue, unresolved critical check, stop condition or out-of-scope prerequisite prevents completion.',
+    '',
+    'Final report contract:',
+    'STATUS: READY | NEEDS HUMAN REVIEW | BLOCKED',
+    'OUTCOME',
+    'What was actually completed.',
+    'SCOPE',
+    'What changed; confirm protected and out-of-scope areas were not intentionally modified.',
+    'VERIFICATION',
+    'Evidence for applicable acceptance criteria, tests, required checks and the core flow.',
+    'KNOWN ISSUES',
+    'Only unresolved relevant issues.',
+    'OUT-OF-SCOPE FINDINGS',
+    'Record findings using the required compact format; do not fix them.',
+    'MANUAL REVIEW',
+    'Include only when genuinely required.',
+    '',
+    'Do not report mostly done, should work, partial success, or an equivalent successful state.',
+  );
+  return lines.join('\n');
 }
 
 /** Format guardrail instructions based on profile strength. */

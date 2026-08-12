@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { OpenCodeModel } from '../services/opencodeModels';
 import type { ExecutionSession, SessionEvent } from '../sessions/types';
 import type { HandoffSnapshot } from './snapshot';
+import type { TaskSpec } from '../schemas/taskspec';
 import { filterHandoffPaths } from './metadata';
+import { completionControlBlock, scopeLockBlock } from '../renderers/shared';
 
 export const handoffStatusSchema = z.enum(['prepared', 'launched', 'failed']);
 export type HandoffStatus = z.infer<typeof handoffStatusSchema>;
@@ -171,11 +173,11 @@ export function buildContinuationPackage(input: BuildContinuationPackageInput): 
     targetExecution: target,
     instruction,
   };
-  const rendered = renderContinuationPackage(packageWithoutRendered);
+  const rendered = renderContinuationPackage(packageWithoutRendered, task);
   return continuationPackageSchema.parse({ ...packageWithoutRendered, rendered });
 }
 
-export function renderContinuationPackage(input: Omit<ContinuationPackage, 'rendered'>): string {
+export function renderContinuationPackage(input: Omit<ContinuationPackage, 'rendered'>, task?: TaskSpec): string {
   const list = (title: string, items: string[]): string[] => [
     `${title}:`,
     ...(items.length > 0 ? items.map((item) => `- ${item}`) : ['- None recorded.']),
@@ -209,6 +211,7 @@ export function renderContinuationPackage(input: Omit<ContinuationPackage, 'rend
     '',
     ...execution('Source execution', input.sourceExecution),
     ...execution('Target execution', input.targetExecution),
+    ...(task ? ['', scopeLockBlock(task), '', completionControlBlock(task)] : []),
     'Instruction:',
     input.instruction,
   ].join('\n');

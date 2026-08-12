@@ -1,13 +1,15 @@
 import type { ExecutionSession, SessionEvent, SessionRuntime } from './types';
+import type { TaskSpec } from '../schemas/taskspec';
+import { completionControlBlock, scopeLockBlock } from '../renderers/shared';
 
 export interface RuntimeAdapter {
   runtime: SessionRuntime;
   label: string;
   instructionFiles: string[];
-  renderContinuation(session: ExecutionSession, events: SessionEvent[], contextPaths?: string[]): string;
+  renderContinuation(session: ExecutionSession, events: SessionEvent[], contextPaths?: string[], task?: TaskSpec | null): string;
 }
 
-function commonContinuation(session: ExecutionSession, events: SessionEvent[]): string[] {
+function commonContinuation(session: ExecutionSession, events: SessionEvent[], task?: TaskSpec | null): string[] {
   const state = session.state;
   const lines = [
     `Continue PromptForge session ${session.id}.`,
@@ -36,6 +38,9 @@ function commonContinuation(session: ExecutionSession, events: SessionEvent[]): 
     if (state.lastAction) lines.push(`- Last action: ${state.lastAction}`);
     if (state.lastValidation) lines.push(`- Last validation: ${state.lastValidation}`);
   }
+  if (task) {
+    lines.push('', scopeLockBlock(task), '', completionControlBlock(task));
+  }
   const notes = events.filter((event) => event.kind !== 'started').slice(-12);
   if (notes.length > 0) {
     lines.push('', '## Session knowledge (append-only local transcript)');
@@ -52,7 +57,7 @@ function makeAdapter(runtime: SessionRuntime, label: string, instructionFiles: s
     runtime,
     label,
     instructionFiles,
-    renderContinuation(session, events, contextPaths = []) {
+    renderContinuation(session, events, contextPaths = [], task = null) {
       const selectedContext = contextPaths.length > 0
         ? [
           '',
@@ -65,7 +70,7 @@ function makeAdapter(runtime: SessionRuntime, label: string, instructionFiles: s
         `# PromptForge continuation · ${label}`,
         `Read ${instructionFiles.join(' and ')} before acting.`,
         ...selectedContext,
-        ...commonContinuation(session, events),
+        ...commonContinuation(session, events, task),
       ].join('\n');
     },
   };

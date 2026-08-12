@@ -15,9 +15,9 @@
 
 ## Progress
 
-- **Current phase:** PromptForge v1 finalization — Slice 1 execution contract compiler complete.
-- **Last validated task:** OpenAI provider compatibility (2026-08-12) — official OpenAI Chat Completions request shape, configurable reasoning effort, bounded reasoning-aware completion budget, connection probing without expensive reasoning, and safe actionable HTTP/provider error mapping. Live transport evidence: saved Keychain profile reached `gpt-5.6-luna` with HTTP 200, one choice, usage and content present. Gates: focused TypeScript 53/53; relevant Rust 14/14; typecheck; production build; `git diff --check`.
-- **Current task:** none — OpenAI provider compatibility is complete; Slice 1 benchmark audit was stopped before acceptance evaluation per user direction. Slice 2 not started.
+- **Current phase:** PromptForge v1 finalization — Slice 2 scope lock + completion control complete.
+- **Last validated task:** PromptForge v1 Finalization — Slice 2 (2026-08-12) — derived scope-lock instructions and deterministic READY / NEEDS HUMAN REVIEW / BLOCKED completion outcomes across runtime, session and provider/model handoff prompts. Gates: focused TypeScript 88/88; typecheck; production build; `git diff --check`.
+- **Current task:** none — Slice 2 is complete and Slice 3 was not started.
 - **Next task:** none recorded — continue only when the next v1 finalization slice is explicitly requested.
 
 ## Decisions (confirmed)
@@ -31,6 +31,7 @@
 - Git is inspected read-only; memory never overrides repository reality.
 - Handoff rendering is deterministic and requires no model call.
 - v1 Slice 1 keeps the 1.1.0 TaskSpec version and adds optional `execution_contract` and `quality_profile` fields so existing stored TaskSpecs remain valid. UI/copy anti-slop defaults are bounded and omitted for backend-only work; project guidance and explicit preferences take precedence.
+- Slice 2 derives scope-lock and completion-control behavior from existing TaskSpec fields. READY / NEEDS HUMAN REVIEW / BLOCKED remain deterministic final-report outcomes; session persistence statuses and TaskSpec schemas are unchanged. Older sessions fall back to their persisted canonical state when a TaskSpec cannot be reloaded.
 - OpenCode is a first-class runtime path, but OpenCode's own session store is external evidence only; PromptForge SQLite `ExecutionSession`, TaskSpec, project memory, transcript/checkpoints and Git state remain canonical. Runtime/model routing is opaque metadata (`providerId`, `modelId`, `modelRef`, `variant`) so new providers do not require hardcoded model registries.
 - VS Code is a visual client with confirmation-gated session controls. The extension consumes `getExecutionSessionView` and queues only fixed Start/Resume/Checkpoint actions through a per-launch-tokenized loopback bridge; PromptForge owns execution, session state, SQLite, runtime launch, and provider boundaries.
 - OpenCode shared visual capability: project `opencode.json` registers the upstream local-only Qwen-MM Core MCP server through native OpenCode configuration, and `.opencode/skills/qwen-mm-plugins-core/SKILL.md` makes the capability discoverable without forced visual context. PromptForge does not transport image bytes, store a Qwen key, add a provider adapter, or couple compiler/session state to Qwen-MM.
@@ -80,6 +81,7 @@
 
 ## Last tests & results
 
+- 2026-08-12 · PromptForge v1 finalization Slice 2: focused TypeScript 88/88 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. No Rust or schema changes.
 - 2026-08-12 · OpenAI provider compatibility: focused TypeScript 53/53 ✓; relevant Rust 14/14 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. Live safe checks: reproduced HTTP 400 `invalid_request_error` / `unsupported_parameter` for legacy `max_tokens`; corrected `gpt-5.6-luna` Chat Completions request returned HTTP 200 with content and usage through the Rust Keychain/provider path.
 - 2026-08-12 · v1 finalization Slice 1: focused compiler/schema/renderer/handoff/continuity tests ✓ 97/97; schema fixtures ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. Full parallel `corepack pnpm test` was 490/492 because of the unrelated SessionsScreen timing failure above; isolated SessionsScreen ✓ 4/4.
 - 2026-08-12 · Sessions persistence/control UI fix: strict scoped regular/readable document probes, inline path validation, project context allowlist persistence/readback/isolation, append-only checkpoint service, terminal-session knowledge management, duplicate-submit guard, and failed-write retention. `corepack pnpm test` ✓ 486/486; focused persistence/UI ✓ 39/39; `corepack pnpm typecheck` ✓; `cargo test --manifest-path src-tauri/Cargo.toml` ✓ 84/84; `corepack pnpm build` ✓; `git diff --check` ✓. `cargo fmt --check` remains a pre-existing unrelated whole-crate formatting failure and was not applied.
@@ -116,11 +118,12 @@
 
 ## Git checkpoint
 
-- **Latest commit:** pending focused provider-compatibility commit.
-- **Uncommitted changes:** provider compatibility implementation and state update pending commit.
+- **Latest commit:** pending focused Slice 2 commit.
+- **Uncommitted changes:** Slice 2 implementation and state update pending commit.
 
 ## Recent history
 
+- 2026-08-12 · PromptForge v1 Finalization Slice 2 — scope lock, deterministic completion outcomes, and provider-neutral handoff/session continuation preservation.
 - 2026-08-12 · PromptForge v1 finalization Slice 1 — compact execution contract compiler, UI/copy quality profile, project-memory/guidance inputs, and provider-neutral runtime/handoff preservation.
 - 2026-08-12 · Sessions persistence/control UI fix — strict project context document selection, persisted Offerpath allowlist/readback, append-only checkpoint knowledge, terminal-session management controls, duplicate-submit protection, and actionable failure handling.
 - 2026-08-11 · Session control-path slice — persisted session instructions and project context allowlists, composed OpenCode task prompts, explicit launch result/error handling, native macOS VS Code launch, and visible launch feedback.

@@ -22,6 +22,8 @@ import {
   sanitizeHeading,
   complexityTier,
   includeSection,
+  scopeLockBlock,
+  completionControlBlock,
 } from './shared';
 
 export function renderClaudeCode(
@@ -78,6 +80,9 @@ export function renderClaudeCode(
 
   const contract = executionContractBlock(task.execution_contract);
   if (contract) { sections.push(contract); sections.push(''); }
+
+  sections.push(scopeLockBlock(task));
+  sections.push('');
 
   const quality = qualityProfileBlock(task.quality_profile);
   if (quality) { sections.push(quality); sections.push(''); }
@@ -160,6 +165,9 @@ export function renderClaudeCode(
 
   // Verification — always present.
   sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
+  sections.push('');
+
+  sections.push(completionControlBlock(task));
   sections.push('');
 
   // Final report — only if content exists.

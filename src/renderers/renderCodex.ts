@@ -8,6 +8,7 @@ import {
   finalReportBlock, verificationGuidanceBlock,
   guardrailBlock, retryBlock, explorationBlock,
   sanitizeHeading, complexityTier, includeSection,
+  scopeLockBlock, completionControlBlock,
 } from './shared';
 
 export function renderCodex(task: TaskSpec, profile: ExecutionProfile): string {
@@ -32,6 +33,9 @@ export function renderCodex(task: TaskSpec, profile: ExecutionProfile): string {
 
   const contract = executionContractBlock(task.execution_contract);
   if (contract) { sections.push(contract); sections.push(''); }
+
+  sections.push(scopeLockBlock(task));
+  sections.push('');
 
   const quality = qualityProfileBlock(task.quality_profile);
   if (quality) { sections.push(quality); sections.push(''); }
@@ -100,6 +104,9 @@ export function renderCodex(task: TaskSpec, profile: ExecutionProfile): string {
   }
 
   sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
+  sections.push('');
+
+  sections.push(completionControlBlock(task));
   sections.push('');
 
   // Completion report — minimal tier gets a shorter version.

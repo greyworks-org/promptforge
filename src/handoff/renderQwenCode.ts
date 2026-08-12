@@ -1,7 +1,7 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
 import { filterHandoffDiffStat, renderHandoffMetadata } from './metadata';
-import { executionContractBlock, qualityProfileBlock } from '../renderers/shared';
+import { completionControlBlock, executionContractBlock, qualityProfileBlock, scopeLockBlock } from '../renderers/shared';
 
 /**
  * Qwen Code handoff renderer (Phase 10).
@@ -42,6 +42,8 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
 
     const contract = executionContractBlock(t.execution_contract);
     if (contract) { sections.push(contract); sections.push(''); }
+    sections.push(scopeLockBlock(t));
+    sections.push('');
     const quality = qualityProfileBlock(t.quality_profile);
     if (quality) { sections.push(quality); sections.push(''); }
 
@@ -56,6 +58,11 @@ export function renderHandoffQwenCode(snapshot: HandoffSnapshot): string {
       for (const sc of t.stop_conditions) sections.push(`- ${sc}`);
       sections.push('');
     }
+  }
+
+  if (snapshot.currentTask) {
+    sections.push(completionControlBlock(snapshot.currentTask));
+    sections.push('');
   }
 
   sections.push(renderHandoffMetadata(snapshot, progress, 'Qwen Code'));

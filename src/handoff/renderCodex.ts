@@ -1,7 +1,7 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
 import { filterHandoffDiffStat, filterHandoffPaths, renderHandoffMetadata } from './metadata';
-import { executionContractBlock, qualityProfileBlock } from '../renderers/shared';
+import { completionControlBlock, executionContractBlock, qualityProfileBlock, scopeLockBlock } from '../renderers/shared';
 
 export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
   const progress = classifyProgress(snapshot);
@@ -66,6 +66,8 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
 
     const contract = executionContractBlock(t.execution_contract);
     if (contract) { sections.push(contract); sections.push(''); }
+    sections.push(scopeLockBlock(t));
+    sections.push('');
     const quality = qualityProfileBlock(t.quality_profile);
     if (quality) { sections.push(quality); sections.push(''); }
 
@@ -96,6 +98,11 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
       for (const r of progress.remaining) sections.push(`- ${r.item}`);
       sections.push('');
     }
+  }
+
+  if (snapshot.currentTask) {
+    sections.push(completionControlBlock(snapshot.currentTask));
+    sections.push('');
   }
 
   sections.push(renderHandoffMetadata(snapshot, progress, 'Codex'));

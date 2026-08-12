@@ -8,6 +8,7 @@ import {
   finalReportBlock, verificationGuidanceBlock,
   guardrailBlock, retryBlock, explorationBlock, readFirstBlock,
   sanitizeHeading, complexityTier, includeSection,
+  scopeLockBlock, completionControlBlock,
 } from './shared';
 
 export function renderQwenCode(task: TaskSpec, profile: ExecutionProfile): string {
@@ -46,6 +47,9 @@ export function renderQwenCode(task: TaskSpec, profile: ExecutionProfile): strin
 
   const contract = executionContractBlock(task.execution_contract);
   if (contract) { sections.push(contract); sections.push(''); }
+
+  sections.push(scopeLockBlock(task));
+  sections.push('');
 
   const quality = qualityProfileBlock(task.quality_profile);
   if (quality) { sections.push(quality); sections.push(''); }
@@ -113,6 +117,9 @@ export function renderQwenCode(task: TaskSpec, profile: ExecutionProfile): strin
   }
 
   sections.push(verificationGuidanceBlock(task.task_type, task.risk_level, task.execution_mode));
+  sections.push('');
+
+  sections.push(completionControlBlock(task));
   sections.push('');
 
   if ((task.final_report?.length ?? 0) > 0) {

@@ -7,7 +7,7 @@ import type { CompilationRecord } from '../db/repos/compilations';
 import type { QueryRunner } from '../db/runner';
 import { createProjectContextDocumentsRepository } from '../db/repos/projectContextDocuments';
 import type { MemoryRecord } from '../db/repos/projectMemory';
-import type { TaskSpec } from '../schemas/taskspec';
+import { taskSpecSchema, type TaskSpec } from '../schemas/taskspec';
 import { getCompilationForProject } from '../services/historyService';
 import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
@@ -476,7 +476,24 @@ export async function renderSessionContinuation(projectId: string, sessionId: st
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
   const events = await listSessionEvents(projectId, sessionId);
-  return adapterFor(session.runtime).renderContinuation(session, events, await selectedContextPaths(projectId));
+  let task: TaskSpec | null = null;
+  if (session.compilationId !== null) {
+    const compilation = await getCompilationForProject(projectId, session.compilationId);
+    if (compilation?.taskspecJson) {
+      try {
+        const parsed = taskSpecSchema.parse(JSON.parse(compilation.taskspecJson));
+        if (parsed.project_id === projectId && parsed.task_id === session.taskId) task = parsed;
+      } catch {
+        // Older or externally-written sessions remain renderable from state.
+      }
+    }
+  }
+  return adapterFor(session.runtime).renderContinuation(
+    session,
+    events,
+    await selectedContextPaths(projectId),
+    task,
+  );
 }
 
 /** Compose the read-only canonical continuation with the explicit user instruction. */
