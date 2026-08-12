@@ -7,6 +7,8 @@ import {
   assumptionsBlock,
   currentStateBlock,
   requirementsBlock,
+  executionContractBlock,
+  qualityProfileBlock,
   edgeCasesBlock,
   executionPlanBlock,
   testInstructionsBlock,
@@ -73,6 +75,12 @@ export function renderClaudeCode(
   // Scope — always present.
   sections.push(scopeBlock(task.scope));
   sections.push('');
+
+  const contract = executionContractBlock(task.execution_contract);
+  if (contract) { sections.push(contract); sections.push(''); }
+
+  const quality = qualityProfileBlock(task.quality_profile);
+  if (quality) { sections.push(quality); sections.push(''); }
 
   // Out of scope — only if content exists.
   const hasOos = (task.out_of_scope?.length ?? 0) > 0;

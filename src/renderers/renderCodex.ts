@@ -3,6 +3,7 @@ import type { ExecutionProfile } from '../profiles/registry';
 import {
   scopeBlock, outOfScopeBlock, acceptanceBlock, assumptionsBlock,
   currentStateBlock, requirementsBlock, edgeCasesBlock,
+  executionContractBlock, qualityProfileBlock,
   executionPlanBlock, testInstructionsBlock, testPlanBlock,
   finalReportBlock, verificationGuidanceBlock,
   guardrailBlock, retryBlock, explorationBlock,
@@ -28,6 +29,12 @@ export function renderCodex(task: TaskSpec, profile: ExecutionProfile): string {
     sections.push(outOfScopeBlock(task.out_of_scope!));
     sections.push('');
   }
+
+  const contract = executionContractBlock(task.execution_contract);
+  if (contract) { sections.push(contract); sections.push(''); }
+
+  const quality = qualityProfileBlock(task.quality_profile);
+  if (quality) { sections.push(quality); sections.push(''); }
 
   // Constraints — always shown but simplified for minimal tier.
   sections.push(`## Constraints`);

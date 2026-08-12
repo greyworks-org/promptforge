@@ -261,6 +261,31 @@ describe('handoff renderers — preservation', () => {
     expect(codex).toContain('Use SQLite for storage');
   });
 
+  it('all renderers preserve the canonical execution contract and quality profile', () => {
+    const task = makeTask({
+      execution_contract: {
+        core_loop: ['Inspect source', 'Generate report', 'Verify findings'],
+        invariants: ['Keep the existing SQLite boundary.'],
+        preserve: ['Preserve the current login flow.'],
+        verification: ['Test an empty report and a failed scan.'],
+      },
+      quality_profile: {
+        anti_slop: ['Avoid nested cards.'],
+        visual_review: true,
+      },
+    });
+    const snapshot = assembleSnapshot({ ...baseSnapshot, currentTask: task });
+    for (const output of [
+      renderHandoffClaudeCode(snapshot),
+      renderHandoffQwenCode(snapshot),
+      renderHandoffCodex(snapshot),
+    ]) {
+      expect(output).toContain('Inspect source');
+      expect(output).toContain('Keep the existing SQLite boundary.');
+      expect(output).toContain('Avoid nested cards.');
+    }
+  });
+
   it('renders the canonical repository path and separates handoff target from original execution', () => {
     const out = renderHandoffCodex(baseSnapshot);
     expect(out).toContain('Repository: `/Users/test/project`');

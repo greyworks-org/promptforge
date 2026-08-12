@@ -69,6 +69,8 @@ compiler output; **shared** = model proposes, client may override.
 | `test_plan` | string[] | no | model | Targeted tests/validation commands. |
 | `stop_conditions` | string[] ≤20 | no | model | When to stop and ask (destructive/irreversible ops). |
 | `final_report` | string[] ≤20 | no | model | **Reporting requirements**: what the executing agent must report on completion (changed files, test results, assumptions, risks). Not a report itself — the task hasn't run yet. |
+| `execution_contract` | object | no | model | Optional compact contract: `core_loop`, `invariants`, `preserve`, `verification`, and ordered `delivery_slices` (maximum 5). Omit unsupported categories. |
+| `quality_profile` | object | no | model/client | Optional UI/copy quality context: product outcome, UX constraints, explicit preferences, compact anti-slop defaults, completion checks, and `visual_review`. Never emitted for backend-only work. |
 | `risk_level` | `low\|medium\|high` | **yes** | model | Influences renderer emphasis. |
 | `confidence` | number 0–1 | no | model | Informational only; never displayed as a quality score. |
 | `estimated_prompt_tokens` | integer ≥0 | no | model | Advisory; client recomputes locally. |
@@ -121,6 +123,11 @@ The heuristic table is plain code (no model call) and intentionally simple.
    client bug (assert, do not retry the model).
 9. Repair is bounded: at most one repair call per compile attempt
    (DEEPSEEK_INTEGRATION.md §4). The pipeline never loops.
+10. `delivery_slices`, when present, contains at most five ordered slices;
+    later slices are not automatically executed by PromptForge.
+11. Generic quality defaults are limited to visual-surface tasks. Explicit
+    project guidance and user preferences take precedence; backend-only tasks
+    do not receive visual rules.
 
 ## 5. Blocking questions and assumptions (spec §10)
 

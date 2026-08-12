@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.1.0",
+  "task_id": "TASK-2026-0043",
+  "project_id": "project-research",
+  "task_type": "feature",
+  "execution_mode": "standard",
+  "target_model": "deepseek-v4-pro",
+  "agent_runtime": "claude-code",
+  "execution_profile": "deepseek-v4-pro-claude-code",
+  "objective": "Build a private local technical research feed application.",
+  "scope": ["Capture feeds", "Review stored entries"],
+  "requirements": {
+    "functional": ["Accept a feed URL and fetch entries."],
+    "frontend": ["Show loading, empty and error states."],
+    "backend": ["Keep fetching behind the local service boundary."],
+    "data": ["Store feed data locally."],
+    "security": ["Keep credentials out of stored feed content."],
+    "accessibility": ["Announce fetch status and errors."],
+    "performance": []
+  },
+  "execution_contract": {
+    "core_loop": ["Accept URL", "Fetch locally", "Persist entries", "Review entries"],
+    "invariants": ["Use one conservative local implementation direction."],
+    "preserve": ["Preserve local-first behavior."],
+    "verification": ["Test valid, empty, malformed and failed feeds."],
+    "delivery_slices": []
+  },
+  "quality_profile": {
+    "product_outcome": "Help users review trustworthy local feeds.",
+    "ux_constraints": ["Make status and errors understandable."],
+    "preferences": ["Prefer a focused reading surface."],
+    "anti_slop": ["Avoid nested cards and decorative badges."],
+    "completion_checks": ["Review the states visually."],
+    "visual_review": true
+  },
+  "acceptance_criteria": ["A user can capture and review a feed locally."],
+  "risk_level": "medium"
+}

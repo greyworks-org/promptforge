@@ -1,6 +1,7 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
 import { filterHandoffDiffStat, renderHandoffMetadata } from './metadata';
+import { executionContractBlock, qualityProfileBlock } from '../renderers/shared';
 
 /**
  * Claude Code handoff renderer (Phase 10).
@@ -45,6 +46,11 @@ export function renderHandoffClaudeCode(snapshot: HandoffSnapshot): string {
       }
       sections.push('');
     }
+
+    const contract = executionContractBlock(t.execution_contract);
+    if (contract) { sections.push(contract); sections.push(''); }
+    const quality = qualityProfileBlock(t.quality_profile);
+    if (quality) { sections.push(quality); sections.push(''); }
   }
 
   sections.push(renderHandoffMetadata(snapshot, progress, 'Claude Code'));

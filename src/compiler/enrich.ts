@@ -1,6 +1,7 @@
 import { estimateTokens } from '../services/tokenBudget';
 import type { CompilerOutput } from '../schemas/compilerOutput';
 import type { TaskSpec } from '../schemas/taskspec';
+import { withQualityProfileDefaults } from './qualityProfile';
 
 /**
  * Client enrichment (Phase 6, TASKSPEC.md §1 step 3).
@@ -45,7 +46,8 @@ function normalizeStopCondition(condition: string): string {
  * This is deterministic: same input → same output.
  */
 export function enrich(input: EnrichInput): TaskSpec {
-  const { compilerOutput: co, projectId } = input;
+  const { projectId } = input;
+  const co = withQualityProfileDefaults(input.compilerOutput);
 
   const taskSpec: TaskSpec = {
     schema_version: '1.1.0',
@@ -74,6 +76,8 @@ export function enrich(input: EnrichInput): TaskSpec {
     test_plan: co.test_plan ?? [],
     stop_conditions: (co.stop_conditions ?? []).map(normalizeStopCondition),
     final_report: co.final_report ?? [],
+    execution_contract: co.execution_contract,
+    quality_profile: co.quality_profile,
     confidence: co.confidence,
     estimated_prompt_tokens: estimateTokens(JSON.stringify(co)),
   };

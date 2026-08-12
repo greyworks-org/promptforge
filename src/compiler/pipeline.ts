@@ -8,6 +8,7 @@ import { extractAndNormalize } from './parse';
 import { enrich } from './enrich';
 import { buildCriticMessage } from './critic';
 import { assemblePayload } from '../services/payloadAssembly';
+import type { MemoryRecord } from '../db/repos/projectMemory';
 
 /**
  * Compiler pipeline state machine (Phase 6).
@@ -55,6 +56,10 @@ export interface CompileRequest {
   rawRequest: string;
   executionMode: 'quick' | 'standard' | 'deep' | 'review' | 'plan';
   contextDocs: Array<{ relPath: string; content: string }>;
+  /** Bounded provider-neutral project facts from the active memory record. */
+  projectMemory?: Pick<MemoryRecord, 'stack' | 'currentPhase' | 'decisions' | 'blockers' | 'relevantFiles'>;
+  /** Existing project rule files; guidance has precedence over generic defaults. */
+  projectGuidance?: Array<{ relPath: string; content: string }>;
   /** Previous blocking-question answers (for re-runs). */
   answers?: string[];
   /** Previous pipeline state (for re-runs). */
@@ -124,6 +129,15 @@ export async function runPipeline(request: CompileRequest): Promise<PipelineStat
 
   // Build the full user message including context + answers.
   let userMessage = request.rawRequest;
+  if (request.projectMemory) {
+    userMessage += `\n\nProject memory (known facts and explicit decisions; do not override repository reality):\n${JSON.stringify(request.projectMemory)}`;
+  }
+  if (request.projectGuidance && request.projectGuidance.length > 0) {
+    const guidanceText = request.projectGuidance
+      .map((d) => `--- project guidance: ${d.relPath} ---\n${d.content}`)
+      .join('\n\n');
+    userMessage += `\n\nProject guidance (follow when it does not conflict with the user's request):\n${guidanceText}`;
+  }
   if (request.contextDocs.length > 0) {
     const ctxText = request.contextDocs
       .map((d) => `--- ${d.relPath} ---\n${d.content}`)

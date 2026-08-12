@@ -1,6 +1,7 @@
 import type { HandoffSnapshot } from './snapshot';
 import { classifyProgress } from './progress';
 import { filterHandoffDiffStat, filterHandoffPaths, renderHandoffMetadata } from './metadata';
+import { executionContractBlock, qualityProfileBlock } from '../renderers/shared';
 
 export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
   const progress = classifyProgress(snapshot);
@@ -62,6 +63,11 @@ export function renderHandoffCodex(snapshot: HandoffSnapshot): string {
       for (const s of t.out_of_scope) sections.push(`- ${s}`);
       sections.push('');
     }
+
+    const contract = executionContractBlock(t.execution_contract);
+    if (contract) { sections.push(contract); sections.push(''); }
+    const quality = qualityProfileBlock(t.quality_profile);
+    if (quality) { sections.push(quality); sections.push(''); }
 
     if (t.acceptance_criteria.length > 0) {
       sections.push('### Acceptance requiring verification');

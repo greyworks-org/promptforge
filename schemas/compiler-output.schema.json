@@ -210,6 +210,44 @@
       "default": [],
       "description": "Reporting requirements: items the executing agent must include in its completion report (e.g. changed files, test results, assumptions, remaining risks)."
     },
+    "execution_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional compact execution contract. Omit unsupported categories rather than inventing requirements.",
+      "properties": {
+        "core_loop": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 12 },
+        "invariants": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "preserve": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "verification": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "delivery_slices": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "scope", "verification"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "scope": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "minItems": 1, "maxItems": 20 },
+              "verification": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "minItems": 1, "maxItems": 10 }
+            }
+          }
+        }
+      }
+    },
+    "quality_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional quality profile for UI or copy work. Do not include visual guidance for backend-only work.",
+      "properties": {
+        "product_outcome": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "ux_constraints": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "preferences": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "anti_slop": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 12 },
+        "completion_checks": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 20 },
+        "visual_review": { "type": "boolean" }
+      }
+    },
     "risk_level": {
       "enum": ["low", "medium", "high"],
       "description": "Compiler's assessment of execution risk."

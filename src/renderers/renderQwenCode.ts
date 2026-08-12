@@ -3,6 +3,7 @@ import type { ExecutionProfile } from '../profiles/registry';
 import {
   scopeBlock, outOfScopeBlock, acceptanceBlock, assumptionsBlock,
   currentStateBlock, requirementsBlock, edgeCasesBlock,
+  executionContractBlock, qualityProfileBlock,
   executionPlanBlock, testInstructionsBlock, testPlanBlock,
   finalReportBlock, verificationGuidanceBlock,
   guardrailBlock, retryBlock, explorationBlock, readFirstBlock,
@@ -42,6 +43,12 @@ export function renderQwenCode(task: TaskSpec, profile: ExecutionProfile): strin
 
   sections.push(scopeBlock(task.scope));
   sections.push('');
+
+  const contract = executionContractBlock(task.execution_contract);
+  if (contract) { sections.push(contract); sections.push(''); }
+
+  const quality = qualityProfileBlock(task.quality_profile);
+  if (quality) { sections.push(quality); sections.push(''); }
   if ((task.out_of_scope?.length ?? 0) > 0) {
     sections.push(outOfScopeBlock(task.out_of_scope!));
     sections.push('');

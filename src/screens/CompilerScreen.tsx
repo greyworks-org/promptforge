@@ -8,6 +8,9 @@ import { recordCompileSuccess } from '../services/memoryService';
 import { listProfiles } from '../services/settingsService';
 import { resolveExecutionProfile } from '../services/providerRegistry';
 import { ensureExecutionSession } from '../sessions/executionSessionService';
+import { getMemory } from '../services/memoryService';
+import { inspectProjectGuidance } from '../services/projectGuidance';
+import { readTextFile } from '../services/projectFs';
 
 /**
  * Compiler screen (Phase 6).
@@ -50,6 +53,8 @@ export function CompilerScreen({
   // Auto-load context docs from the active project.
   const [contextDocs, setContextDocs] = useState<Array<{ relPath: string; content: string }>>([]);
   const [contextLoading, setContextLoading] = useState(false);
+  const [projectMemory, setProjectMemory] = useState<Awaited<ReturnType<typeof getMemory>> | null>(null);
+  const [projectGuidance, setProjectGuidance] = useState<Array<{ relPath: string; content: string }>>([]);
 
   useEffect(() => {
     if (!activeProjectId) { setContextDocs([]); return; }
@@ -67,6 +72,39 @@ export function CompilerScreen({
       })
       .catch(() => setContextDocs([]))
       .finally(() => setContextLoading(false));
+  }, [activeProjectId]);
+
+  // Reuse bounded project facts and existing rule files when compiling. These
+  // are inputs only; the repository remains the execution source of truth.
+  useEffect(() => {
+    if (!activeProjectId) {
+      setProjectMemory(null);
+      setProjectGuidance([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([getMemory(activeProjectId), inspectProjectGuidance(activeProjectId)])
+      .then(async ([memory, entries]) => {
+        const rules = entries.filter((entry) => entry.kind === 'rule').slice(0, 8);
+        const loaded = await Promise.all(rules.map(async (entry) => {
+          try {
+            return { relPath: entry.path, content: (await readTextFile(activeProjectId, entry.path)).slice(0, 8_000) };
+          } catch {
+            return null;
+          }
+        }));
+        if (!cancelled) {
+          setProjectMemory(memory);
+          setProjectGuidance(loaded.filter((item): item is { relPath: string; content: string } => item !== null));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectMemory(null);
+          setProjectGuidance([]);
+        }
+      });
+    return () => { cancelled = true; };
   }, [activeProjectId]);
 
   const [answers, setAnswers] = useState<string[]>([]);
@@ -112,6 +150,16 @@ export function CompilerScreen({
         rawRequest: rawRequest.trim(),
         executionMode: resolvedMode,
         contextDocs,
+        projectMemory: projectMemory
+          ? {
+              stack: projectMemory.stack,
+              currentPhase: projectMemory.currentPhase,
+              decisions: projectMemory.decisions,
+              blockers: projectMemory.blockers,
+              relevantFiles: projectMemory.relevantFiles,
+            }
+          : undefined,
+        projectGuidance,
         answers: answers.length > 0 ? answers : undefined,
         previousState: state ?? undefined,
       };
@@ -158,7 +206,7 @@ export function CompilerScreen({
     } finally {
       setBusy(false);
     }
-  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, state, answers]);
+  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, projectMemory, projectGuidance, state, answers]);
 
   const handleAnswersSubmit = useCallback(
     (newAnswers: string[]) => {

@@ -47,6 +47,58 @@ export function acceptanceBlock(criteria: string[]): string {
   return `## Acceptance criteria\n\n${bulletList(criteria)}`;
 }
 
+/** Render the canonical execution contract without adding provider-specific meaning. */
+export function executionContractBlock(contract: TaskSpec['execution_contract']): string {
+  if (!contract) return '';
+  const lines: string[] = ['## Execution contract'];
+  if (contract.core_loop && contract.core_loop.length > 0) {
+    lines.push('', 'Core loop:');
+    lines.push(...contract.core_loop.map((item, index) => `${index + 1}. ${sanitizeHeading(item)}`));
+  }
+  if (contract.invariants && contract.invariants.length > 0) {
+    lines.push('', 'Invariants:');
+    lines.push(bulletList(contract.invariants));
+  }
+  if (contract.preserve && contract.preserve.length > 0) {
+    lines.push('', 'Preserve:');
+    lines.push(bulletList(contract.preserve));
+  }
+  if (contract.verification && contract.verification.length > 0) {
+    lines.push('', 'Verify:');
+    lines.push(bulletList(contract.verification));
+  }
+  if (contract.delivery_slices && contract.delivery_slices.length > 0) {
+    lines.push('', 'Delivery slices (execute only the first safe slice unless directed otherwise):');
+    contract.delivery_slices.forEach((slice, index) => {
+      lines.push(`${index + 1}. ${sanitizeHeading(slice.title)}`);
+      lines.push(`   Scope: ${slice.scope.map(sanitizeHeading).join('; ')}`);
+      lines.push(`   Verify: ${slice.verification.map(sanitizeHeading).join('; ')}`);
+    });
+  }
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+/** Render the optional UI/copy quality profile. */
+export function qualityProfileBlock(profile: TaskSpec['quality_profile']): string {
+  if (!profile) return '';
+  const lines: string[] = ['## Quality profile'];
+  if (profile.product_outcome) lines.push('', `Product outcome: ${sanitizeHeading(profile.product_outcome)}`);
+  if (profile.ux_constraints && profile.ux_constraints.length > 0) {
+    lines.push('', 'UX constraints:', bulletList(profile.ux_constraints));
+  }
+  if (profile.preferences && profile.preferences.length > 0) {
+    lines.push('', 'Explicit preferences:', bulletList(profile.preferences));
+  }
+  if (profile.anti_slop && profile.anti_slop.length > 0) {
+    lines.push('', 'Avoid:', bulletList(profile.anti_slop));
+  }
+  if (profile.completion_checks && profile.completion_checks.length > 0) {
+    lines.push('', 'Visual/copy completion checks:', bulletList(profile.completion_checks));
+  }
+  if (profile.visual_review === true) lines.push('', 'Visual review: required.');
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
 /** Format context files to read first. */
 export function readFirstBlock(files: string[]): string {
   if (files.length === 0) return '';

@@ -15,10 +15,10 @@
 
 ## Progress
 
-- **Current phase:** Sessions persistence/control UI fix complete — project context documents and local checkpoint knowledge persist through the real project/session boundaries without runtime-state gating.
-- **Last validated task:** PromptForge Sessions persistence/control UI fix (2026-08-12) — strict project-relative regular/readable context-file selection, Offerpath document allowlist/readback/isolation coverage, append-only project/session checkpoint persistence, terminal-session management controls, duplicate-submit protection, and failure retention. Gates: TypeScript 486/486; focused persistence/UI 39/39; Rust 84/84; typecheck; production build; `git diff --check`.
-- **Current task:** none — Sessions persistence/control UI fix completed (2026-08-12).
-- **Next task:** Handoff history and bounded failure recovery read models — make persisted prepared/failed outcomes discoverable without adding a timeline or changing execution ownership.
+- **Current phase:** PromptForge v1 finalization — Slice 1 execution contract compiler complete.
+- **Last validated task:** Stronger compact execution contracts (2026-08-12) — optional execution contract and UI/copy quality profile, bounded delivery slices, project memory/guidance compiler context, shared runtime/handoff rendering, schema fixtures and focused regression coverage. Gates: affected TypeScript 97/97; schema fixtures; typecheck; production build; `git diff --check`.
+- **Current task:** none — Slice 1 completed (2026-08-12); Slice 2 not started.
+- **Next task:** none recorded — continue only when the next v1 finalization slice is explicitly requested.
 
 ## Decisions (confirmed)
 
@@ -29,6 +29,7 @@
 - Two contracts: `schemas/compiler-output.schema.json` → enrichment → `schemas/taskspec.schema.json`; repair bounded to one call.
 - Git is inspected read-only; memory never overrides repository reality.
 - Handoff rendering is deterministic and requires no model call.
+- v1 Slice 1 keeps the 1.1.0 TaskSpec version and adds optional `execution_contract` and `quality_profile` fields so existing stored TaskSpecs remain valid. UI/copy anti-slop defaults are bounded and omitted for backend-only work; project guidance and explicit preferences take precedence.
 - OpenCode is a first-class runtime path, but OpenCode's own session store is external evidence only; PromptForge SQLite `ExecutionSession`, TaskSpec, project memory, transcript/checkpoints and Git state remain canonical. Runtime/model routing is opaque metadata (`providerId`, `modelId`, `modelRef`, `variant`) so new providers do not require hardcoded model registries.
 - VS Code is a visual client with confirmation-gated session controls. The extension consumes `getExecutionSessionView` and queues only fixed Start/Resume/Checkpoint actions through a per-launch-tokenized loopback bridge; PromptForge owns execution, session state, SQLite, runtime launch, and provider boundaries.
 - OpenCode shared visual capability: project `opencode.json` registers the upstream local-only Qwen-MM Core MCP server through native OpenCode configuration, and `.opencode/skills/qwen-mm-plugins-core/SKILL.md` makes the capability discoverable without forced visual context. PromptForge does not transport image bytes, store a Qwen key, add a provider adapter, or couple compiler/session state to Qwen-MM.
@@ -46,6 +47,7 @@
 ## Blockers & risks
 
 - U1 (blocking for live testing only): DeepSeek endpoint contract unconfirmed — connection test resolves it once a key is configured.
+- Full parallel TypeScript suite has an unrelated SessionsScreen timing failure (2/4 only when run with the entire suite); `src/screens/SessionsScreen.test.tsx` passes 4/4 in isolation and Sessions code was not changed by Slice 1.
 - U2–U4 assumptions open: English UI, pnpm, macOS-first MVP.
 - R3/R5/R11 unchanged (FTS5, fs scopes, git binary) — later phases.
 - Dev-environment keychain note (resolved 2026-08-06, kept for reference): each unsigned `tauri dev` rebuild changes the binary's code identity, so a keychain item created by an earlier build can fail re-authorization ("Keychain state unavailable." in Settings) until the key is re-saved from the current build. The fixture key was re-saved through the UI during manual verification. Optional remaining manual pass: replace/delete a key through the UI.
@@ -68,6 +70,8 @@
 - src/handoff/{crossModel,crossModelService}.ts · src/handoff/crossModelService.test.ts · src/db/repos/executionHandoffs.ts · src/db/migrations/0008_execution_handoffs.sql
 - opencode.json · .opencode/skills/qwen-mm-plugins-core/SKILL.md · tools/validate-opencode-capability.mjs
 - src/services/vscodeIntegration.ts · src-tauri/src/commands/vscode.rs · vscode-extension/{package.json,src/*}
+- src/compiler/{pipeline,systemPrompt,parse,enrich,critic,qualityProfile}.ts · src/compiler/executionContract.test.ts
+- src/renderers/{shared,renderClaudeCode,renderQwenCode,renderCodex}.ts · src/handoff/{renderClaudeCode,renderQwenCode,renderCodex}.ts
 - src/redaction/blocklist.ts · src/templates/{instructions,contextDocs}.ts
 - src/db/{runner,migrate,appDb,pluginSqlRunner,betterSqliteRunner}.ts · src/db/migrations/{0001_init.sql,0002_fts.sql} · src/db/repos/{projects,settingsRepo,contextDocs}.ts
 - src-tauri/src/{lib,keychain,provider}.rs · src-tauri/src/commands/{keychain,provider,fs}.rs · src-tauri/{tauri.conf.json,Cargo.toml} · src-tauri/capabilities/default.json
@@ -75,6 +79,7 @@
 
 ## Last tests & results
 
+- 2026-08-12 · v1 finalization Slice 1: focused compiler/schema/renderer/handoff/continuity tests ✓ 97/97; schema fixtures ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. Full parallel `corepack pnpm test` was 490/492 because of the unrelated SessionsScreen timing failure above; isolated SessionsScreen ✓ 4/4.
 - 2026-08-12 · Sessions persistence/control UI fix: strict scoped regular/readable document probes, inline path validation, project context allowlist persistence/readback/isolation, append-only checkpoint service, terminal-session knowledge management, duplicate-submit guard, and failed-write retention. `corepack pnpm test` ✓ 486/486; focused persistence/UI ✓ 39/39; `corepack pnpm typecheck` ✓; `cargo test --manifest-path src-tauri/Cargo.toml` ✓ 84/84; `corepack pnpm build` ✓; `git diff --check` ✓. `cargo fmt --check` remains a pre-existing unrelated whole-crate formatting failure and was not applied.
 
 - 2026-08-11 · OpenCode shared Qwen-MM Core capability: `corepack pnpm validate:opencode-capability` ✓. Upstream `qwen-mm-plugins-core` stdio round-trip against `src-tauri/icons/icon.png` ✓ — 7 tools advertised; `read_image` returned text + image parts and resized 256×256 → 512×512. `opencode mcp list` could not complete because the existing local OpenCode DB failed `PRAGMA wal_checkpoint(PASSIVE)` before MCP discovery; direct server validation is authoritative for this bounded capability.
@@ -109,11 +114,12 @@
 
 ## Git checkpoint
 
-- **Latest commit:** `fix(sessions): persist context docs and checkpoints` (current HEAD after commit).
+- **Latest commit:** `feat(compiler): add compact execution contracts` (PromptForge v1 finalization Slice 1 checkpoint).
 - **Uncommitted changes:** none after the focused commit.
 
 ## Recent history
 
+- 2026-08-12 · PromptForge v1 finalization Slice 1 — compact execution contract compiler, UI/copy quality profile, project-memory/guidance inputs, and provider-neutral runtime/handoff preservation.
 - 2026-08-12 · Sessions persistence/control UI fix — strict project context document selection, persisted Offerpath allowlist/readback, append-only checkpoint knowledge, terminal-session management controls, duplicate-submit protection, and actionable failure handling.
 - 2026-08-11 · Session control-path slice — persisted session instructions and project context allowlists, composed OpenCode task prompts, explicit launch result/error handling, native macOS VS Code launch, and visible launch feedback.
 - 2026-08-11 · Project→session runtime binding fix — project-owned session inputs, fresh uncompiled session creation, project-scoped recovery, mismatch blocking, and PromptForge/Offerpath cwd regression coverage.

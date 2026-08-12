@@ -1,5 +1,28 @@
 import { z } from 'zod';
 
+const deliverySliceSchema = z.object({
+  title: z.string().min(1).max(200),
+  scope: z.array(z.string().min(1).max(500)).min(1).max(20),
+  verification: z.array(z.string().min(1).max(500)).min(1).max(10),
+}).strict();
+
+const executionContractSchema = z.object({
+  core_loop: z.array(z.string().min(1).max(500)).max(12).optional(),
+  invariants: z.array(z.string().min(1).max(500)).max(20).optional(),
+  preserve: z.array(z.string().min(1).max(500)).max(20).optional(),
+  verification: z.array(z.string().min(1).max(500)).max(20).optional(),
+  delivery_slices: z.array(deliverySliceSchema).max(5).optional(),
+}).strict();
+
+const qualityProfileSchema = z.object({
+  product_outcome: z.string().min(1).max(500).optional(),
+  ux_constraints: z.array(z.string().min(1).max(500)).max(20).optional(),
+  preferences: z.array(z.string().min(1).max(500)).max(20).optional(),
+  anti_slop: z.array(z.string().min(1).max(500)).max(12).optional(),
+  completion_checks: z.array(z.string().min(1).max(500)).max(20).optional(),
+  visual_review: z.boolean().optional(),
+}).strict();
+
 /**
  * Zod mirror of schemas/compiler-output.schema.json (v1.1.0).
  *
@@ -52,6 +75,8 @@ export const compilerOutputSchema = z
     test_plan: z.array(z.string().min(1).max(500)).max(50).default([]),
     stop_conditions: z.array(z.string().min(1).max(500)).max(20).default([]),
     final_report: z.array(z.string().min(1).max(256)).max(20).default([]),
+    execution_contract: executionContractSchema.optional(),
+    quality_profile: qualityProfileSchema.optional(),
     risk_level: z.enum(['low', 'medium', 'high']),
     confidence: z.number().min(0).max(1).optional(),
     estimated_prompt_tokens: z.number().int().min(0).optional(),
