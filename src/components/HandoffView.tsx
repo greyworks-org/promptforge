@@ -14,6 +14,8 @@ import { renderHandoffCodex } from '../handoff/renderCodex';
 import type { TaskSpec } from '../schemas/taskspec';
 import type { CompilationRecord } from '../db/repos/compilations';
 import { ensureExecutionSession } from '../sessions/executionSessionService';
+import { deriveContinuationState } from '../handoff/continuationState';
+import { deriveActiveSessionContinuation } from '../services/continuationRefresh';
 import { replaceLiveGitSnapshot, repositoryFreshnessLabel } from '../services/projectFreshness';
 
 export interface HandoffViewProps {
@@ -25,7 +27,7 @@ export interface HandoffViewProps {
 
 type Runtime = 'claude-code' | 'qwen-code' | 'codex';
 
-function runtimeLabel(runtime: Runtime): string {
+function runtimeLabel(runtime: string): string {
   return runtime === 'claude-code' ? 'Claude Code' : runtime === 'qwen-code' ? 'Qwen Code' : 'Codex';
 }
 
@@ -90,7 +92,18 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
         }
       }
 
-      const liveSnapshot = assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation });
+      const derivedFromSession = await deriveActiveSessionContinuation({ projectId, task: currentTask, compilation: currentCompilation, memory, git, runtime });
+      const derived = derivedFromSession ?? deriveContinuationState({
+        task: currentTask,
+        session: null,
+        events: [],
+        memory,
+        git,
+        currentCompilationProvider: currentCompilation?.providerLabel ?? null,
+        target: { runtime },
+      });
+
+      const liveSnapshot = assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation, continuationState: derived });
       if (requestId !== requestRef.current) return;
       updateDisplayedSnapshot(liveSnapshot);
 
@@ -112,7 +125,14 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
       memory = refreshed.memory;
       if (requestId !== requestRef.current) return;
       updateDisplayedSnapshot(replaceLiveGitSnapshot(
-        assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation }),
+        assembleSnapshot({
+          projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation,
+          continuationState: derivedFromSession ?? deriveContinuationState({
+            task: currentTask, session: null, events: [], memory, git,
+            currentCompilationProvider: currentCompilation?.providerLabel ?? null,
+            target: { runtime },
+          }),
+        }),
         git,
       ));
     } catch (err) {
@@ -121,7 +141,7 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
       if (requestId === requestRef.current) setLoading(false);
       refreshingRef.current = false;
     }
-  }, [projectId, projectName, updateDisplayedSnapshot]);
+  }, [projectId, projectName, runtime, updateDisplayedSnapshot]);
 
   useEffect(() => {
     void refresh(true);
@@ -138,7 +158,20 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
   const handleRuntimeChange = (nextRuntime: Runtime) => {
     setRuntime(nextRuntime);
     runtimeRef.current = nextRuntime;
-    if (snapshot) setOutput(renderForRuntime(nextRuntime, snapshot));
+    if (snapshot) {
+      const state = snapshot.continuationState
+        ? { ...snapshot.continuationState, continueWith: { ...snapshot.continuationState.continueWith, runtime: nextRuntime } }
+        : deriveContinuationState({
+            task: snapshot.currentTask,
+            session: null,
+            events: [],
+            memory: snapshot.memory,
+            git: snapshot.git,
+            currentCompilationProvider: snapshot.currentCompilation?.providerLabel ?? null,
+            target: { runtime: nextRuntime, binding: { modelId: snapshot.currentTask?.target_model ?? null } },
+          });
+      setOutput(renderForRuntime(nextRuntime, { ...snapshot, continuationState: state }));
+    }
   };
 
   const startPersistentSession = async () => {
@@ -181,12 +214,24 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Current task</p>
             <h3 className="mt-1 text-base font-semibold">{snapshot.currentTask?.objective ?? 'No active task'}</h3>
             <p className="mt-2 text-sm text-zinc-600">
-              Status: {snapshot.currentTask ? classifyProgress(snapshot).isInterrupted ? 'In progress' : 'Ready to resume' : 'No task in progress'}
+              Status: {snapshot.continuationState?.taskStatus ?? (snapshot.currentTask ? 'active' : 'No task in progress')}
             </p>
             {snapshot.currentTask && (
-              <p className="mt-1 text-xs text-zinc-500">
-                Model: {snapshot.currentTask.target_model} · Execution runtime: {runtimeLabel(runtime)}
-              </p>
+              <>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Last execution: {snapshot.continuationState?.lastExecution.runtime ? runtimeLabel(snapshot.continuationState.lastExecution.runtime) : 'Unknown runtime'} · {snapshot.continuationState?.lastExecution.modelRef ?? snapshot.continuationState?.lastExecution.modelId ?? 'model unknown'}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Continue with: {runtimeLabel(runtime)} · {snapshot.continuationState?.continueWith.modelRef ?? snapshot.continuationState?.continueWith.modelId ?? snapshot.currentTask.target_model}
+                </p>
+              </>
+            )}
+            {snapshot.continuationState && (
+              <div className="mt-3 grid gap-2 text-xs text-zinc-600 md:grid-cols-3">
+                <div><p className="font-medium text-zinc-800">Completed</p><p>{snapshot.continuationState.verifiedCompleted.join(' · ') || 'None recorded.'}</p></div>
+                <div><p className="font-medium text-zinc-800">Remaining</p><p>{snapshot.continuationState.remaining.join(' · ') || 'None.'}</p></div>
+                <div><p className="font-medium text-zinc-800">Next</p><p>{snapshot.continuationState.nextAction}</p></div>
+              </div>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
               {sessionId && onSessions ? (

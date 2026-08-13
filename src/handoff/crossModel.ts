@@ -5,6 +5,7 @@ import type { HandoffSnapshot } from './snapshot';
 import type { TaskSpec } from '../schemas/taskspec';
 import { filterHandoffPaths } from './metadata';
 import { completionControlBlock, scopeLockBlock } from '../renderers/shared';
+import { deriveContinuationState } from './continuationState';
 
 export const handoffStatusSchema = z.enum(['prepared', 'launched', 'failed']);
 export type HandoffStatus = z.infer<typeof handoffStatusSchema>;
@@ -115,49 +116,33 @@ export function buildContinuationPackage(input: BuildContinuationPackageInput): 
   const { snapshot, sourceSession, sourceEvents, targetSessionId, targetModel } = input;
   const task = snapshot.currentTask;
   if (task === null) throw new Error('A cross-model handoff requires a canonical TaskSpec.');
-  const semantic = snapshot.memory.semanticContext?.status === 'fresh'
-    ? snapshot.memory.semanticContext.snapshot
-    : null;
+  const state = snapshot.continuationState ?? deriveContinuationState({
+    task,
+    session: sourceSession,
+    events: sourceEvents,
+    memory: snapshot.memory,
+    git: snapshot.git,
+    currentCompilationProvider: snapshot.currentCompilation?.providerLabel ?? null,
+    target: {
+      runtime: 'opencode',
+      binding: { providerId: targetModel.providerId, modelId: targetModel.modelId, modelRef: targetModel.modelRef },
+    },
+  });
   const source = sourceReference(sourceSession);
   const target = targetReference(targetSessionId, targetModel);
-  const observedCompleted = unique([
-    ...(semantic?.observed_completed ?? []),
-    ...sourceSession.state.completed,
-  ]);
-  const observedPartial = unique([
-    ...(semantic?.observed_partial ?? []),
-  ]);
-  const decisions = unique([
-    ...sourceSession.state.decisions,
-    ...snapshot.memory.decisions.map((decision) => decision.text),
-  ]);
-  const constraints = unique([
-    ...task.stop_conditions,
-    ...task.out_of_scope.map((item) => `Out of scope: ${item}`),
-  ]);
-  const validationEvidence = unique([
-    ...(semantic?.validation_evidence ?? []),
-    ...(sourceSession.state.lastValidation ? [sourceSession.state.lastValidation] : []),
-    ...(snapshot.memory.lastTest ? [`${snapshot.memory.lastTest.commands.join(' && ')} — ${snapshot.memory.lastTest.results}`] : []),
-  ]);
-  const acceptanceRequiringVerification = unique([
-    ...task.acceptance_criteria,
-    ...(semantic?.acceptance_requiring_verification ?? []),
-    ...sourceSession.state.pending.map((item) => `Session-reported pending item: ${item}`),
-  ]);
-  const knownBlockers = unique([
-    ...sourceSession.state.blockers,
-    ...snapshot.memory.blockers.map((blocker) => blocker.text),
-    ...(semantic?.blockers_observed ?? []),
-    ...(sourceSession.recoveryReason ? [sourceSession.recoveryReason] : []),
-  ]);
-  const immediateNextAction = semantic?.immediate_next_action
-    || 'Inspect the current repository and reconcile acceptance criteria against verified evidence before acting.';
-  const instruction = 'The current repository and PromptForge canonical state are authoritative. Continue the existing task. Verify ambiguous items. Do not redo already-implemented work. Do not depend on the previous conversation.';
+  const observedCompleted = unique(state.verifiedCompleted);
+  const observedPartial = unique(state.unverified);
+  const decisions = unique(state.decisions);
+  const constraints = unique(state.scopeConstraints);
+  const validationEvidence = unique(state.verificationEvidence);
+  const acceptanceRequiringVerification = unique(state.remaining);
+  const knownBlockers = unique(state.blockers);
+  const immediateNextAction = state.nextAction;
+  const instruction = 'The current repository and reconciled PromptForge continuation state are authoritative. Continue only the unresolved work. Verify ambiguous items. Do not redo already-implemented work. Do not depend on the previous conversation.';
   const packageWithoutRendered = {
     repository: snapshot.repoPath,
     task: { id: task.task_id, goal: task.objective },
-    currentStatus: sourceSession.status,
+    currentStatus: state.taskStatus,
     observedCompleted,
     observedPartial,
     decisions,

@@ -26,6 +26,7 @@ import {
 import { getOpenCodeModelDiscovery, type OpenCodeModel } from '../services/opencodeModels';
 import { runAutomaticVisualReview, type AutomaticVisualReviewResult } from '../services/visualReview';
 import { adapterFor } from './adapters';
+import { deriveContinuationState } from '../handoff/continuationState';
 import {
   emptySessionState,
   emptyRuntimeBinding,
@@ -179,12 +180,18 @@ export async function verifyExecutionSession(
     functionalFlow: deriveSessionFunctionalEvidence(task, session.state),
     ...(visualReview.evidence ? { visualReview: visualReview.evidence } : {}),
   });
+  const verifiedItems = outcome.status === 'READY'
+    ? [...task.acceptance_criteria]
+    : deriveSessionFunctionalEvidence(task, session.state)
+      .filter((item) => item.status === 'VERIFIED')
+      .map((item) => item.requirement);
   await appendSessionEvent(
     projectId,
     sessionId,
     'tool_observation',
     `Completion verification: ${outcome.status}. Visual review: ${visualReview.evidence?.status ?? 'not applicable'}; screenshots: ${visualReview.screenshotCount}; reviews: ${visualReview.reviewCount}; corrective passes: ${visualReview.correctivePasses}.`,
     session.runtime,
+    { outcome: outcome.status, verified_items: JSON.stringify(verifiedItems) },
   );
   return { taskId: task.task_id, visualReview, outcome };
 }
@@ -223,12 +230,13 @@ export async function appendSessionEvent(
   kind: SessionEventKind,
   content: string,
   runtime?: SessionRuntime | null,
+  metadata?: Record<string, string>,
 ): Promise<SessionEvent> {
   const sessions = await repo();
   const session = await sessions.getById(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
   const event = await sessions.appendEvent({
-    id: id('event'), projectId, sessionId, kind, runtime: runtime ?? session.runtime, content,
+    id: id('event'), projectId, sessionId, kind, runtime: runtime ?? session.runtime, content, metadata,
   });
   await sessions.update(projectId, sessionId, {});
   return event;
@@ -361,6 +369,7 @@ export interface ExecutionSessionView {
   projectContextDocuments: string[];
   completion: 'active' | 'completed' | 'failed' | 'interrupted';
   controls: { canStart: boolean; canResume: boolean; canCheckpoint: boolean };
+  continuationState: ReturnType<typeof deriveContinuationState>;
 }
 
 export function deriveExecutionSessionControls(session: ExecutionSession, events: SessionEvent[]): ExecutionSessionView['controls'] {
@@ -395,6 +404,24 @@ export async function getExecutionSessionView(projectId: string, sessionId: stri
     ...git.uncommitted.unstaged,
     ...git.uncommitted.untracked,
   ])].sort();
+  let task: TaskSpec | null = null;
+  let compilationProvider: string | null = null;
+  if (session.compilationId !== null) {
+    const compilation = await getCompilationForProject(projectId, session.compilationId);
+    compilationProvider = compilation?.providerLabel ?? null;
+    if (compilation?.taskspecJson) {
+      try {
+        const parsed = taskSpecSchema.parse(JSON.parse(compilation.taskspecJson));
+        if (parsed.project_id === projectId && parsed.task_id === session.taskId) task = parsed;
+      } catch {
+        // Legacy sessions remain readable from their persisted session state.
+      }
+    }
+  }
+  const continuationState = deriveContinuationState({
+    task, session, events, memory, git, currentCompilationProvider: compilationProvider,
+    target: { runtime: session.runtime, binding: session.binding },
+  });
   const completion = session.status === 'completed' ? 'completed'
     : session.status === 'failed' ? 'failed'
       : session.status === 'interrupted' ? 'interrupted' : 'active';
@@ -415,6 +442,7 @@ export async function getExecutionSessionView(projectId: string, sessionId: stri
     projectContextDocuments,
     completion,
     controls: deriveExecutionSessionControls(session, events),
+    continuationState,
   };
 }
 
@@ -570,11 +598,42 @@ export async function renderSessionContinuation(projectId: string, sessionId: st
       }
     }
   }
+  const project = await getProject(projectId);
+  if (project === null) throw new Error('The registered project could not be found.');
+  let memory: MemoryRecord;
+  try {
+    memory = await getMemory(projectId);
+  } catch {
+    memory = {
+      projectId, stack: [], currentPhase: null, lastValidatedTaskId: null,
+      currentTaskId: session.compilationId, nextTask: null, decisions: [], blockers: [],
+      relevantFiles: session.state.relevantFiles, lastTest: null, baseCommit: session.baseCommit,
+      semanticContext: null, updatedAt: session.lastActiveAt,
+    };
+  }
+  let git: GitSnapshot;
+  try {
+    git = await getGitSnapshot(projectId, session.baseCommit ?? memory.baseCommit ?? undefined);
+  } catch {
+    git = {
+      isRepo: false, head: session.lastKnownHead ? { hash: session.lastKnownHead, subject: 'last known HEAD', committedAt: session.lastActiveAt } : null,
+      uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, branch: null, diff: '', recentCommits: [],
+    };
+  }
+  const continuationState = deriveContinuationState({
+    task,
+    session,
+    events,
+    memory,
+    git,
+    target: { runtime: session.runtime, binding: session.binding },
+  });
   return adapterFor(session.runtime).renderContinuation(
     session,
     events,
     await selectedContextPaths(projectId),
     task,
+    continuationState,
   );
 }
 

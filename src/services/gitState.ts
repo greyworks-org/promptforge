@@ -20,6 +20,8 @@ export interface GitSnapshot {
   };
   /** Bounded tracked-file diff for semantic refresh; never used as authority. */
   diff?: string;
+  /** Commits observed after the requested base/checkpoint, newest first. */
+  recentCommits?: Array<{ hash: string; subject: string; committedAt: string }>;
   branch: string | null;
 }
 
@@ -31,6 +33,7 @@ interface GitInspectResult {
   untracked: string[];
   diffStat: string;
   diff?: string;
+  recentCommits?: Array<{ hash: string; subject: string; committedAt: string }>;
   branch: string | null;
 }
 
@@ -52,6 +55,7 @@ export async function getGitSnapshot(projectId: string, baseCommit?: string): Pr
       },
       branch: raw.branch,
       diff: raw.diff ?? '',
+      recentCommits: raw.recentCommits ?? [],
     };
   } catch {
     return {
@@ -60,6 +64,7 @@ export async function getGitSnapshot(projectId: string, baseCommit?: string): Pr
       uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' },
       branch: null,
       diff: '',
+      recentCommits: [],
     };
   }
 }

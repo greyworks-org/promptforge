@@ -2,6 +2,7 @@ import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { TaskSpec } from '../schemas/taskspec';
 import type { GitSnapshot } from '../services/gitState';
 import type { CompilationRecord } from '../db/repos/compilations';
+import type { ContinuationState } from './continuationState';
 
 /**
  * Handoff snapshot assembly (Phase 10).
@@ -27,6 +28,8 @@ export interface HandoffSnapshot {
   currentTask: TaskSpec | null;
   /** The persisted compilation that owns the current TaskSpec. */
   currentCompilation: CompilationRecord | null;
+  /** Fresh derived state used by continuation renderers when available. */
+  continuationState?: ContinuationState;
   /** When the snapshot was assembled. */
   assembledAt: string;
 }
@@ -46,6 +49,7 @@ export interface AssembleSnapshotInput {
   git: GitSnapshot;
   currentTask: TaskSpec | null;
   currentCompilation?: CompilationRecord | null;
+  continuationState?: ContinuationState;
 }
 
 /**
@@ -78,6 +82,7 @@ export function assembleSnapshot(input: AssembleSnapshotInput): HandoffSnapshot 
   return {
     ...input,
     currentCompilation: input.currentCompilation ?? null,
+    ...(input.continuationState ? { continuationState: input.continuationState } : {}),
     assembledAt: new Date().toISOString(),
   };
 }

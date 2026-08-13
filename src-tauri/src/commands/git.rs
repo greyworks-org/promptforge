@@ -13,12 +13,21 @@ pub struct GitInspectResult {
     pub untracked: Vec<String>,
     pub diff_stat: String,
     pub diff: String,
+    pub recent_commits: Vec<GitCommit>,
     pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHead {
+    pub hash: String,
+    pub subject: String,
+    pub committed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
     pub hash: String,
     pub subject: String,
     pub committed_at: String,
@@ -104,6 +113,7 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
             untracked: vec![],
             diff_stat: String::new(),
             diff: String::new(),
+            recent_commits: vec![],
             branch: None,
         });
     }
@@ -124,6 +134,25 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
         });
 
     let branch = run_git(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"]).ok();
+
+    let recent_commits = if let Some(base) = base_commit.as_ref().filter(|value| is_valid_commit_hash(value)) {
+        let range = format!("{}..HEAD", base);
+        run_git(&repo_path, &["log", range.as_str(), "-n", "20", "--format=%H%x09%s%x09%cI"])
+            .unwrap_or_default()
+    } else {
+        run_git(&repo_path, &["log", "-n", "20", "--format=%H%x09%s%x09%cI"])
+            .unwrap_or_default()
+    }
+    .lines()
+    .filter_map(|line| {
+        let mut parts = line.splitn(3, '\t');
+        Some(GitCommit {
+            hash: parts.next()?.to_string(),
+            subject: parts.next()?.to_string(),
+            committed_at: parts.next()?.to_string(),
+        })
+    })
+    .collect();
 
     // Parse status --porcelain=v1 for staged/unstaged/untracked.
     let mut staged = Vec::new();
@@ -154,7 +183,7 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
     }
 
     let diff_stat = run_git(&repo_path, &["diff", "--stat"]).unwrap_or_default();
-    let diff_source = if let Some(base) = base_commit.filter(|value| is_valid_commit_hash(value)) {
+    let diff_source = if let Some(base) = base_commit.as_ref().filter(|value| is_valid_commit_hash(value)) {
         let args = ["diff", base.as_str(), "HEAD", "--no-ext-diff", "--unified=20"];
         run_git(&repo_path, &args).unwrap_or_default()
     } else {
@@ -173,6 +202,7 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
         untracked,
         diff_stat,
         diff,
+        recent_commits,
         branch,
     })
 }

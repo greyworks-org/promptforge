@@ -1,54 +1,79 @@
 import type { ExecutionSession, SessionEvent, SessionRuntime } from './types';
 import type { TaskSpec } from '../schemas/taskspec';
-import { completionControlBlock, scopeLockBlock } from '../renderers/shared';
+import type { ContinuationState } from '../handoff/continuationState';
 
 export interface RuntimeAdapter {
   runtime: SessionRuntime;
   label: string;
   instructionFiles: string[];
-  renderContinuation(session: ExecutionSession, events: SessionEvent[], contextPaths?: string[], task?: TaskSpec | null): string;
+  renderContinuation(session: ExecutionSession, events: SessionEvent[], contextPaths?: string[], task?: TaskSpec | null, state?: ContinuationState): string;
 }
 
-function commonContinuation(session: ExecutionSession, events: SessionEvent[], task?: TaskSpec | null): string[] {
-  const state = session.state;
+function runtimeLabel(runtime: string | null): string {
+  return runtime === 'claude-code' ? 'Claude Code' : runtime === 'qwen-code' ? 'Qwen Code' : runtime === 'opencode' ? 'OpenCode' : runtime === 'codex' ? 'Codex' : 'Unknown runtime';
+}
+
+function executionLabel(identity: ContinuationState['continueWith']): string {
+  return `${runtimeLabel(identity.runtime)} · ${identity.modelRef ?? identity.modelId ?? 'model unknown'}`;
+}
+
+function commonContinuation(session: ExecutionSession, _events: SessionEvent[], task: TaskSpec | null | undefined, state?: ContinuationState): string[] {
+  if (!state) return [
+    `Continue PromptForge session ${session.id}.`,
+    'No derived continuation state is available; inspect the repository and persisted session state before acting.',
+  ];
+  const taskState = state;
   const lines = [
     `Continue PromptForge session ${session.id}.`,
     'The repository and current files are authoritative; verify before editing.',
-    `Objective: ${state.objective || '(recover the persisted TaskSpec and inspect current state)'}`,
-    `Task: ${state.taskId ?? 'no TaskSpec id recorded'}`,
-    `Session status: ${session.status}`,
+    `Objective: ${session.state.objective || '(recover the persisted TaskSpec and inspect current state)'}`,
+    `Task: ${taskState.originalTaskReference ?? session.state.taskId ?? 'no TaskSpec id recorded'}`,
     '',
-    '## Already observed',
-    ...(state.completed.length > 0 ? state.completed.map((item) => `- DONE (persisted evidence): ${item}`) : ['- No completed work is persisted.']),
+    '## Current project state',
+    `- HEAD: ${taskState.currentHead ?? 'unavailable'}${taskState.branch ? ` · ${taskState.branch}` : ''} · ${taskState.clean ? 'clean' : 'changes'}`,
+    `- Status: ${taskState.taskStatus}`,
+    ...(taskState.relevantChangedFiles.length > 0 ? [`- Changed files: ${taskState.relevantChangedFiles.join(', ')}`] : ['- Changed files: none']),
+    ...(taskState.relevantRecentCommits.length > 0 ? ['- Recent commits:', ...taskState.relevantRecentCommits.map((commit) => `  - ${commit.hash.slice(0, 8)} — ${commit.subject}`)] : []),
+    '',
+    '## Verified completed',
+    ...(taskState.verifiedCompleted.length > 0 ? taskState.verifiedCompleted.map((item) => `- ${item}`) : ['- None recorded.']),
+    '',
+    '## In progress / unverified',
+    ...(taskState.unverified.length > 0 ? taskState.unverified.map((item) => `- ${item}`) : ['- None recorded.']),
     '',
     '## Still pending',
-    ...(state.pending.length > 0 ? state.pending.map((item) => `- ${item}`) : ['- Reconstruct the next safe step from the repository and TaskSpec.']),
+    ...(taskState.remaining.length > 0 ? taskState.remaining.map((item) => `- ${item}`) : ['- None.']),
+    '',
+    '## Next action',
+    taskState.nextAction,
+    '',
+    '## Last execution',
+    `- ${executionLabel(taskState.lastExecution)}`,
+    ...(taskState.lastExecution.checkpoint ? [`- Checkpoint: ${taskState.lastExecution.checkpoint}`] : []),
+    ...(taskState.lastExecution.result ? [`- Result: ${taskState.lastExecution.result}`] : []),
+    '',
+    '## Continue with',
+    `- ${executionLabel(taskState.continueWith)}`,
   ];
-  if (state.decisions.length > 0) {
-    lines.push('', '## Decisions', ...state.decisions.map((item) => `- ${item}`));
+  if (taskState.checkpointNotes.length > 0) {
+    lines.push('', '## Checkpoint knowledge', ...taskState.checkpointNotes.map((item) => `- ${item}`));
   }
-  if (state.blockers.length > 0) {
-    lines.push('', '## Blockers and risks', ...state.blockers.map((item) => `- ${item}`));
+  if (taskState.verificationEvidence.length > 0) {
+    lines.push('', '## Verification evidence', ...taskState.verificationEvidence.map((item) => `- ${item}`));
   }
-  if (state.relevantFiles.length > 0) {
-    lines.push('', '## Relevant files', ...state.relevantFiles.map((item) => `- ${item}`));
+  if (taskState.decisions.length > 0) {
+    lines.push('', '## Decisions', ...taskState.decisions.map((item) => `- ${item}`));
   }
-  if (state.lastAction || state.lastValidation) {
-    lines.push('', '## Latest checkpoint');
-    if (state.lastAction) lines.push(`- Last action: ${state.lastAction}`);
-    if (state.lastValidation) lines.push(`- Last validation: ${state.lastValidation}`);
+  if (taskState.blockers.length > 0) {
+    lines.push('', '## Blockers', ...taskState.blockers.map((item) => `- ${item}`));
   }
-  if (task) {
-    lines.push('', scopeLockBlock(task), '', completionControlBlock(task));
+  if (taskState.scopeConstraints.length > 0) {
+    lines.push('', '## Scope / preserve constraints', ...taskState.scopeConstraints.map((item) => `- ${item}`));
   }
-  const notes = events.filter((event) => event.kind !== 'started').slice(-12);
-  if (notes.length > 0) {
-    lines.push('', '## Session knowledge (append-only local transcript)');
-    for (const event of notes) {
-      lines.push(`- [${event.kind}${event.runtime ? ` · ${event.runtime}` : ''}] ${event.content}`);
-    }
+  if (task && taskState.originalTaskReference) {
+    lines.push('', '## Canonical TaskSpec reference', `- ${taskState.originalTaskReference} remains canonical; only unresolved items above are actionable.`);
   }
-  lines.push('', 'Do not repeat completed work. Inspect the repository, ask before destructive operations, and report changed files and validation at the next checkpoint.');
+  lines.push('', 'Do not repeat completed work. Do not replay the previous transcript. Inspect only the evidence needed for the next action, ask before destructive operations, and report changed files and validation at the next checkpoint.');
   return lines;
 }
 
@@ -57,7 +82,7 @@ function makeAdapter(runtime: SessionRuntime, label: string, instructionFiles: s
     runtime,
     label,
     instructionFiles,
-    renderContinuation(session, events, contextPaths = [], task = null) {
+    renderContinuation(session, events, contextPaths = [], task = null, state) {
       const selectedContext = contextPaths.length > 0
         ? [
           '',
@@ -70,7 +95,7 @@ function makeAdapter(runtime: SessionRuntime, label: string, instructionFiles: s
         `# PromptForge continuation · ${label}`,
         `Read ${instructionFiles.join(' and ')} before acting.`,
         ...selectedContext,
-        ...commonContinuation(session, events, task),
+        ...commonContinuation(session, events, task, state),
       ].join('\n');
     },
   };

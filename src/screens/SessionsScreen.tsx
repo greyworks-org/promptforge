@@ -137,12 +137,23 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
 
   useEffect(() => {
     if (!selectedId) return undefined;
+    const refreshContinuation = () => {
+      void renderSessionContinuation(projectId, selectedId)
+        .then((nextPrompt) => setPrompt(nextPrompt))
+        .catch(() => {});
+    };
+    const continuationTimer = window.setInterval(refreshContinuation, 1500);
+    window.addEventListener('focus', refreshContinuation);
     const timer = window.setInterval(() => {
       void getExecutionSessionView(projectId, selectedId)
         .then((view) => publishVscodeSessionView(projectId, selectedId, view))
         .catch(() => {});
     }, 5000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(continuationTimer);
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshContinuation);
+    };
   }, [projectId, selectedId]);
 
   const select = async (sessionId: string) => {
@@ -395,8 +406,9 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold">{selected.state.objective || 'Recovered task session'}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Status: {selected.status} · Execution runtime: {selected.runtime === 'opencode' ? 'OpenCode' : selected.runtime === 'claude-code' ? 'Claude Code' : selected.runtime === 'qwen-code' ? 'Qwen Code' : 'Codex'} · Started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
-                  <p className="mt-1 text-sm text-zinc-700">Model: {activeModelLabel}</p>
+                  <p className="mt-1 text-xs text-zinc-500">Status: {selected.status} · Started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="mt-1 text-sm text-zinc-700">Last execution: {selected.runtime === 'opencode' ? 'OpenCode' : selected.runtime === 'claude-code' ? 'Claude Code' : selected.runtime === 'qwen-code' ? 'Qwen Code' : 'Codex'} · {activeModelLabel}</p>
+                  <p className="mt-1 text-sm text-zinc-700">Continue with: {selected.runtime === 'opencode' ? 'OpenCode' : selected.runtime === 'claude-code' ? 'Claude Code' : selected.runtime === 'qwen-code' ? 'Qwen Code' : 'Codex'} · {activeModelLabel}</p>
                 </div>
                 <div className="flex gap-1">
                   {runtimes.map((runtime) => (
