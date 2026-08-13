@@ -169,16 +169,21 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
     modelId: targetBinding.modelId ?? (input.target === undefined ? session?.binding.modelId ?? task?.target_model ?? null : null),
     modelRef: targetBinding.modelRef ?? (input.target === undefined ? session?.binding.modelRef ?? null : null),
   };
-  const externalChange = (session !== null
-    && session.lastKnownHead !== null
-    && session.lastKnownHead !== (git.head?.hash ?? null))
-    || (git.recentCommits?.length ?? 0) > 0;
-  const substantialChange = files.length > 20 || (git.recentCommits?.length ?? 0) > 10;
+  const observedHead = session?.lastKnownHead
+    ?? (memory.semanticContext?.status === 'fresh' ? memory.semanticContext.snapshot?.head_commit ?? null : null);
+  const currentHead = git.head?.hash ?? null;
+  const headChanged = git.isRepo && observedHead !== null && currentHead !== null && observedHead !== currentHead;
+  const dirtyRepository = git.uncommitted.staged.length > 0
+    || git.uncommitted.unstaged.length > 0
+    || git.uncommitted.untracked.length > 0;
+  // recentCommits are bounded context from the task/base commit. They are not
+  // reconciliation evidence because that base can predate the last observed HEAD.
+  const externalChange = headChanged || dirtyRepository || session?.status === 'interrupted';
   const taskStatus: ContinuationStatus = ready
     ? 'completed'
     : blockers.length > 0
       ? 'blocked'
-      : externalChange || substantialChange
+      : externalChange
         ? 'needs reconciliation'
         : 'active';
   const noProgressEvidence = verifiedCompleted.length === 0 && unverified.length === 0 && checkpointNotes.length === 0 && verificationEvidence.length === 0;

@@ -16,7 +16,7 @@
 ## Progress
 
 - **Current phase:** PromptForge v1 multi-model code finalization complete; feature frozen.
-- **Last validated task:** project-aware dynamic continuation (2026-08-13) — live repository reconciliation, bounded relevant commits, persisted checkpoint/verification/blocker/decision evidence, completed vs remaining work, task lifecycle, external-change detection, and source→target runtime/model handoff. Gates: focused TypeScript 103/103; Rust 87/87; root typecheck; production build; OpenCode capability validation; Tauri macOS bundle; `git diff --check`.
+- **Last validated task:** false continuation-reconciliation fix (2026-08-13) — the latest successfully observed session/semantic HEAD is the reconciliation baseline; bounded historical commits remain context only, while newer HEADs and dirty evidence remain UNVERIFIED reconciliation signals. Gates: focused TypeScript 79/79; root typecheck; production build; `git diff --check`.
 - **Current task:** continuation state is finalized and project-aware; ordinary model switching preserves recoverable repository progress without a manual checkpoint.
 - **Next task:** none for v1.
 
@@ -43,6 +43,7 @@
 - Product-quality pass: History always settles to loaded, empty, or retryable error; Continue refreshes the active project repository on selection, focus, and a lightweight 1.5-second active-view interval; repository state remains authoritative. Session model labels reflect the persisted RuntimeBinding, including legacy bindings, and Settings infers only known provider identities for legacy profiles.
 - Cross-model handoff: the user must explicitly select the source session and validated OpenCode target model. PromptForge creates a new target session, persists one bounded `HandoffArtifact` linking source→handoff→target, launches through the existing OpenCode path with the canonical repo/model/continuation prompt, and never mutates or reuses the source session. The package carries observed evidence and verification-needed acceptance criteria; it does not replay transcripts.
 - Dynamic continuation: `ContinuationState` is derived from TaskSpec, persisted session/checkpoint/verification/blocker/decision evidence, and live Git state. Current HEAD/branch/dirty state and bounded commits replace stale task-start evidence; repository changes remain UNVERIFIED unless persisted evidence proves completion. Completed items are omitted from continuation, remaining items drive the next action, and BLOCKED tasks resume from the blocker. Manual checkpoints remain for non-repository knowledge such as investigation conclusions, rejected approaches, user decisions, external constraints, and blocker rationale.
+- Reconciliation baseline: current HEAD is compared with persisted `lastKnownHead` or a fresh semantic observed HEAD. A matching clean HEAD is active even when the task-base commit yields historical recent-commit context; legacy sessions without a trustworthy baseline do not enter reconciliation solely from that context. Dirty repository evidence and persisted interrupted status remain reconciliation signals until evidence is recorded.
 - Source→target continuity: Claude Code, Qwen Code, Codex, and OpenCode handoffs regenerate from the latest derived state while preserving the same session/TaskSpec/evidence lineage. Source runtime/model and target runtime/model remain distinct; no raw transcript or automatic replay of completed work is emitted. External repository edits/commits are detected without an app restart.
 - VS Code Visual Handoff & Review: the extension remains presentation/control only. The existing session tree exposes Handoff; the focused review panel reads canonical source/session/model data and structured `ContinuationPackage` evidence through the tokenized loopback bridge. PromptForge core owns preview preparation, target validation, target session creation, launch, persisted lineage, and source immutability; only explicit Confirm Handoff crosses into execution.
 - macOS release runtime discovery: the existing bounded executable locator preserves PATH lookup and falls back only to `$HOME/.opencode/bin/opencode` for OpenCode. It verifies executable permissions and `--version` success, and the same resolved path is used by status, model enumeration, and launch; HOME is read from the process environment and no filesystem scan is performed.
@@ -92,6 +93,7 @@
 
 - 2026-08-13 · Product-quality/runtime-correctness pass: full TypeScript 543/543 ✓ (60 files); final affected regression rerun 37/37 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; final `corepack pnpm tauri build` ✓. History success/empty/error/retry states, active-project reload, focus/interval repository refresh, context-state distinction, legacy model binding, provider identity, and UX cleanup covered by focused regressions. Packaged app launch PASS from Finder (user-confirmed).
 - 2026-08-13 · Dynamic continuation finalized: derived project-aware state reconciles current repository evidence, relevant commits/changes, persisted sessions/checkpoints, verification evidence, completed vs remaining work, blocker/task lifecycle, and source→target runtime/model identity. Focused TypeScript 103/103 ✓; Rust 87/87 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓ with the prior dynamic-import chunk warning resolved; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; `corepack pnpm tauri build` ✓. No transcript replay and no automatic replay of completed task items.
+- 2026-08-13 · False continuation-reconciliation fix: matching current/reconciled HEAD stays active across reopen; newer HEAD and dirty changes remain needs reconciliation/UNVERIFIED; successful reconciliation reference heads advance; historical commits alone do not trigger legacy sessions. Focused TypeScript 79/79 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓.
 - 2026-08-13 · Multi-provider model switching: focused TypeScript 105/105 ✓; Rust 87/87 ✓; VS Code extension typecheck ✓; root typecheck; production build; OpenCode capability validation; Tauri macOS bundle; `git diff --check` ✓.
 - 2026-08-13 · Multi-provider model switching: focused TypeScript 105/105 ✓; Rust 87/87 ✓; VS Code extension typecheck ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; `corepack pnpm tauri build` ✓. One packaged `open` attempt returned the known host-level `kLSNoExecutableErr`; manual packaged smoke remains required.
 
@@ -133,13 +135,14 @@
 
 ## Git checkpoint
 
-- **Latest checkpoint:** `fix: make continuation state project-aware` (dynamic continuation implementation and validated project-state record).
+- **Latest checkpoint:** `fix: prevent false continuation reconciliation` (reconciliation baseline correction and validated project-state record).
 - **Uncommitted changes:** none after the checkpoint commit.
 
 ## Recent history
 
 - 2026-08-13 · PromptForge v1 final product pass — persistent History terminal states, active-project repository freshness, clear context/provider/model terminology, restrained end-user UX across the main screens, and final package launch confirmation.
 - 2026-08-13 · Dynamic continuation — project-aware live repository reconciliation, persisted evidence, task lifecycle, and source→target runtime/model handoff.
+- 2026-08-13 · False continuation reconciliation — compare against the latest observed session/semantic HEAD; historical recent commits remain context only.
 - 2026-08-13 · PromptForge v1 finalization — optional VS Code degradation, bounded visual review wiring, Verify & complete, functional evidence connection, final validation, and feature freeze.
 - 2026-08-12 · PromptForge v1 Finalization Slice 3 — functional golden-path evidence, bounded Qwen-MM visual QA contract, and one corrective pass.
 - 2026-08-12 · PromptForge v1 Finalization Slice 2 — scope lock, deterministic completion outcomes, and provider-neutral handoff/session continuation preservation.

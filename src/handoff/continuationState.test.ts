@@ -50,6 +50,70 @@ function event(overrides: Partial<SessionEvent> = {}): SessionEvent {
 }
 
 describe('derived continuation state', () => {
+  it('stays active at the same reconciled HEAD even with historical commit context', () => {
+    const state = deriveContinuationState({
+      task,
+      session: session({ status: 'reconciled', lastKnownHead: 'head-new' }),
+      events: [event({ kind: 'reconciled', content: 'Restart reconciliation found no repository changes since the last checkpoint.' })],
+      memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [{ hash: 'old-context', subject: 'historical context', committedAt: '2026-08-12T00:00:00Z' }] },
+    });
+    expect(state.taskStatus).toBe('active');
+    expect(state.externalChange).toBe(false);
+  });
+
+  it('stays active after reopening with the same reconciled HEAD', () => {
+    const state = deriveContinuationState({
+      task,
+      session: session({ status: 'reconciled', lastKnownHead: 'head-new' }),
+      events: [event({ kind: 'reconciled', content: 'Restart reconciliation found no repository changes since the last checkpoint.' })],
+      memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [] },
+    });
+    expect(state.taskStatus).toBe('active');
+  });
+
+  it('requires reconciliation for a newer HEAD after the last observed HEAD', () => {
+    const state = deriveContinuationState({
+      task, session: session({ status: 'reconciled', lastKnownHead: 'head-old' }), events: [], memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [{ hash: 'new-context', subject: 'new external commit', committedAt: '2026-08-13T00:00:00Z' }] },
+    });
+    expect(state.taskStatus).toBe('needs reconciliation');
+    expect(state.nextAction).toContain('PROJECT CHANGED OUTSIDE CURRENT SESSION');
+  });
+
+  it('requires reconciliation for dirty repository evidence without verifying it', () => {
+    const state = deriveContinuationState({
+      task, session: session({ status: 'reconciled', lastKnownHead: 'head-new' }), events: [], memory,
+      git: { ...git, uncommitted: { staged: ['src/external.ts'], unstaged: [], untracked: [], diffStat: 'src/external.ts | 1 +' }, recentCommits: [] },
+    });
+    expect(state.taskStatus).toBe('needs reconciliation');
+    expect(state.unverified.join('\n')).toContain('UNVERIFIED');
+  });
+
+  it('uses the advanced observed HEAD after successful reconciliation', () => {
+    const before = deriveContinuationState({
+      task, session: session({ status: 'active', lastKnownHead: 'head-old' }), events: [], memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [] },
+    });
+    const after = deriveContinuationState({
+      task, session: session({ status: 'reconciled', lastKnownHead: before.currentHead }), events: [], memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [] },
+    });
+    expect(before.taskStatus).toBe('needs reconciliation');
+    expect(after.taskStatus).toBe('active');
+  });
+
+  it('does not treat legacy historical commits as external change without a baseline', () => {
+    const state = deriveContinuationState({
+      task, session: session({ status: 'reconciled', baseCommit: null, lastKnownHead: null }), events: [],
+      memory: { ...memory, baseCommit: null },
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [{ hash: 'legacy-context', subject: 'old commit', committedAt: '2026-08-01T00:00:00Z' }] },
+    });
+    expect(state.taskStatus).toBe('active');
+    expect(state.externalChange).toBe(false);
+  });
+
   it('keeps only unresolved TaskSpec items pending when persisted evidence proves two complete', () => {
     const state = deriveContinuationState({
       task, session: session({ state: { ...session().state, completed: ['Acceptance one', 'Acceptance two'] } }), events: [], memory, git,
