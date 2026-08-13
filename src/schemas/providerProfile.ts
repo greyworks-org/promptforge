@@ -12,8 +12,12 @@ export const providerProfileSchema = z
   .object({
     id: z.string().min(1),
     label: z.string().min(1),
+    /** Stable provider identity used by the shared model catalog. */
+    providerId: z.string().min(1).optional(),
     baseUrl: z.string().min(1),
     modelId: z.string().min(1),
+    /** Explicit OpenCode provider/model reference; never inferred from a display label. */
+    runtimeModelRef: z.string().min(3).optional(),
     capabilities: z.object({ jsonMode: jsonModeSchema }),
     params: z.object({
       temperature: z.number().min(0).max(2),

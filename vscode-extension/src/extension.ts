@@ -55,6 +55,36 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
   public async runAction(action: SessionAction): Promise<void> {
     if (!this.connection || !this.view) return;
     let note: string | undefined;
+    let payload: unknown;
+    if (action === 'model') {
+      const choice = await vscode.window.showInputBox({
+        prompt: 'Model: Luna 5.6 High, Qwen 3.8 Max, or DeepSeek V4 Flash',
+        ignoreFocusOut: true,
+      });
+      if (!choice?.trim()) return;
+      const labels: Record<string, { providerId: string; label: string }> = {
+        'Luna 5.6 High': { providerId: 'openai', label: 'Luna 5.6 High' },
+        'Qwen 3.8 Max': { providerId: 'qwen', label: 'Qwen 3.8 Max' },
+        'DeepSeek V4 Flash': { providerId: 'deepseek', label: 'DeepSeek V4 Flash' },
+      };
+      const model = labels[choice.trim()];
+      if (!model) {
+        await vscode.window.showErrorMessage('Choose exactly Luna 5.6 High, Qwen 3.8 Max, or DeepSeek V4 Flash.');
+        return;
+      }
+      const ref = await vscode.window.showInputBox({
+        prompt: `${model.label} OpenCode model reference (provider/model-id)`,
+        ignoreFocusOut: true,
+      });
+      if (!ref?.trim() || !ref.includes('/')) return;
+      payload = { providerId: model.providerId, modelId: ref.slice(ref.indexOf('/') + 1), modelRef: ref.trim() };
+      const confirmed = await vscode.window.showWarningMessage(
+        `Switch this PromptForge session to ${model.label}?`,
+        { modal: true },
+        'Switch Model',
+      );
+      if (confirmed !== 'Switch Model') return;
+    }
     if (action === 'checkpoint') {
       const value = await vscode.window.showInputBox({
         prompt: 'Checkpoint note to save in PromptForge',
@@ -68,7 +98,7 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
       );
       if (confirmed !== 'Save Note') return;
       note = value.trim();
-    } else {
+    } else if (action !== 'model') {
       const label = action === 'start' ? 'Start Session' : 'Resume Session';
       const confirmed = await vscode.window.showWarningMessage(
         `${label} through PromptForge and OpenCode?`,
@@ -78,7 +108,7 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
       if (confirmed !== label) return;
     }
     try {
-      const actionId = await requestSessionAction(this.connection, action, note);
+      const actionId = await requestSessionAction(this.connection, action, note, payload);
       this.feedback = `${action === 'checkpoint' ? 'Checkpoint note' : `OpenCode ${action}`} requested.`;
       this.changed.fire();
       const result = await waitForSessionAction(this.connection, actionId);
@@ -115,6 +145,7 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
     if (view.controls.canStart) actions.push(new PanelItem('Start Session', 'Confirm to launch OpenCode', [], { command: 'promptforge.startSession', title: 'Start Session' }));
     if (view.controls.canResume) actions.push(new PanelItem('Resume Session', 'Confirm to resume OpenCode', [], { command: 'promptforge.resumeSession', title: 'Resume Session' }));
     if (view.controls.canCheckpoint) actions.push(new PanelItem('Add Checkpoint Note', 'Save to PromptForge', [], { command: 'promptforge.addCheckpointNote', title: 'Add Checkpoint Note' }));
+    actions.push(new PanelItem('Switch Model', 'Update the same PromptForge session', [], { command: 'promptforge.switchModel', title: 'Switch Model' }));
     actions.push(new PanelItem('Handoff', 'Review and continue with another OpenCode model', [], { command: 'promptforge.handoff', title: 'Handoff' }));
     return [
       ...(this.feedback ? [new PanelItem('Action feedback', this.feedback)] : []),
@@ -141,6 +172,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('promptforge.startSession', () => provider.runAction('start')),
     vscode.commands.registerCommand('promptforge.resumeSession', () => provider.runAction('resume')),
     vscode.commands.registerCommand('promptforge.addCheckpointNote', () => provider.runAction('checkpoint')),
+    vscode.commands.registerCommand('promptforge.switchModel', () => provider.runAction('model')),
     vscode.commands.registerCommand('promptforge.handoff', () => {
       const connection = parseConnection(vscode.workspace.getConfiguration().get<string>('promptforge.connection', ''));
       if (connection) HandoffPanel.open(connection);

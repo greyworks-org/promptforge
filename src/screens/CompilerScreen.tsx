@@ -5,8 +5,10 @@ import { BlockingQuestionsDialog } from '../components/BlockingQuestionsDialog';
 import { listContextDocs, readContextContent } from '../services/contextService';
 import { recordCompilation } from '../services/historyService';
 import { recordCompileSuccess } from '../services/memoryService';
-import { listProfiles } from '../services/settingsService';
+import { hasApiKey } from '../services/providerService';
+import { listProfiles, loadSelectedModelId, saveSelectedModelId } from '../services/settingsService';
 import { resolveExecutionProfile } from '../services/providerRegistry';
+import { DEFAULT_MODEL_ID, MODEL_CATALOG, resolveCatalogModel, runtimeModelRef } from '../models/catalog';
 import { ensureExecutionSession } from '../sessions/executionSessionService';
 import { getMemory } from '../services/memoryService';
 import { inspectProjectGuidance } from '../services/projectGuidance';
@@ -31,8 +33,7 @@ export function CompilerScreen({
   const [taskType, setTaskType] = useState('auto');
   const [depth, setDepth] = useState('auto');
   const [targetRuntime, setTargetRuntime] = useState('claude-code');
-  const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [modelId, setModelId] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [availableProfiles, setAvailableProfiles] = useState<ProviderProfile[]>([]);
 
   const [state, setState] = useState<PipelineState | null>(null);
@@ -41,12 +42,12 @@ export function CompilerScreen({
 
   // Load available provider profiles.
   useEffect(() => {
-    listProfiles().then((profiles) => {
+    Promise.all([listProfiles(), loadSelectedModelId()]).then(([profiles, savedModelId]) => {
       setAvailableProfiles(profiles);
-      if (profiles.length > 0 && !selectedProviderId) {
-        setSelectedProviderId(profiles[0].id);
-        setModelId(profiles[0].modelId);
-      }
+      setSelectedModelId(MODEL_CATALOG.some((model) => model.id === savedModelId) ? savedModelId : DEFAULT_MODEL_ID);
+    }).catch(() => {
+      setAvailableProfiles([]);
+      setSelectedModelId(DEFAULT_MODEL_ID);
     });
   }, []);
 
@@ -119,15 +120,16 @@ export function CompilerScreen({
       return;
     }
 
-    // Use the dropdown-selected profile (not the prop, which may still be loading).
-    const selectedProfile = availableProfiles.find((p) => p.id === selectedProviderId);
-    if (!selectedProfile) {
-      setError('Select a provider profile.');
+    const selected = resolveCatalogModel(selectedModelId, availableProfiles);
+    if (!selected.ok) { setError(selected.error); return; }
+    const selectedProfile = selected.value.profile;
+    if (!(await hasApiKey(selectedProfile.id))) {
+      setError(`CONFIGURATION REQUIRED: save an API key for ${selected.value.model.displayName} in Settings.`);
       return;
     }
 
     // Validate runtime + provider + model combination.
-    const resolved = resolveExecutionProfile(targetRuntime, selectedProfile.label, modelId);
+    const resolved = resolveExecutionProfile(targetRuntime, `${selectedProfile.providerId ?? ''} ${selectedProfile.label}`, selectedProfile.modelId);
     if (!resolved.ok) { setError(resolved.error); return; }
 
     setError(null);
@@ -196,6 +198,15 @@ export function CompilerScreen({
             runtime: result.taskSpec.agent_runtime,
             task: result.taskSpec,
             compilation,
+            binding: {
+              providerId: selectedProfile.providerId ?? null,
+              modelId: selectedProfile.modelId,
+              modelRef: runtimeModelRef(selectedProfile),
+              variant: null,
+              runtimeSessionId: null,
+              detectedVersion: null,
+              capabilities: [],
+            },
           });
         } catch (err) {
           setError(`Compilation succeeded but could not be persisted: ${err instanceof Error ? err.message : String(err)}`);
@@ -206,7 +217,7 @@ export function CompilerScreen({
     } finally {
       setBusy(false);
     }
-  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedProviderId, modelId, availableProfiles, contextDocs, projectMemory, projectGuidance, state, answers]);
+  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedModelId, availableProfiles, contextDocs, projectMemory, projectGuidance, state, answers]);
 
   const handleAnswersSubmit = useCallback(
     (newAnswers: string[]) => {
@@ -295,18 +306,16 @@ export function CompilerScreen({
         </label>
 
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Provider</span>
-          <select className={selectClass} value={selectedProviderId} onChange={(e) => { setSelectedProviderId(e.target.value); const p = availableProfiles.find((x) => x.id === e.target.value); if (p) setModelId(p.modelId); }} disabled={busy}>
-            {availableProfiles.length === 0 && <option value="">No providers configured</option>}
-            {availableProfiles.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
+          <span className="font-medium">Compiler model</span>
+          <select
+            className={selectClass}
+            value={selectedModelId}
+            onChange={(e) => { setSelectedModelId(e.target.value); void saveSelectedModelId(e.target.value); }}
+            disabled={busy}
+          >
+            {MODEL_CATALOG.map((model) => <option key={model.id} value={model.id}>{model.displayName}</option>)}
           </select>
-        </label>
-
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Model</span>
-          <input className={inputClass} value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="auto (from provider)" disabled={busy} />
+          <span className="text-xs text-zinc-400">Explicit selection; no automatic routing.</span>
         </label>
       </div>
 

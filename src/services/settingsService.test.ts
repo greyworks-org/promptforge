@@ -7,8 +7,10 @@ import { defaultProfile, type ProviderProfile } from '../schemas/providerProfile
 import {
   clearProfile,
   loadProfile,
+  loadSelectedModelId,
   resetSettingsCacheForTests,
   saveProfile,
+  saveSelectedModelId,
   setDbForTests,
 } from './settingsService';
 
@@ -111,5 +113,13 @@ describe('settingsService (Phase 2 SQLite persistence)', () => {
     const stored = storedSettingsValues();
     expect(stored).not.toMatch(/key/i);
     expect(stored).not.toMatch(/secret/i);
+  });
+
+  it('defaults the model selection to Luna and persists an explicit override', async () => {
+    expect(await loadSelectedModelId()).toBe('luna-5.6-high');
+    await saveProfile(makeProfile());
+    await saveSelectedModelId('qwen-3.8-max');
+    resetSettingsCacheForTests();
+    expect(await loadSelectedModelId()).toBe('qwen-3.8-max');
   });
 });

@@ -6,6 +6,7 @@ import {
   providerProfileSchema,
   type ProviderProfile,
 } from '../schemas/providerProfile';
+import { DEFAULT_MODEL_ID } from '../models/catalog';
 
 /**
  * Provider settings persistence (Phase 2): the SQLite `settings` table
@@ -24,6 +25,7 @@ export const providerProfilesStoreSchema = z
   .object({
     active: z.string().min(1),
     profiles: z.record(providerProfileSchema),
+    selectedModelId: z.string().min(1).default(DEFAULT_MODEL_ID),
   })
   .strict();
 
@@ -81,7 +83,7 @@ async function loadStore(): Promise<ProviderProfilesStore | null> {
   // One-time migration from the Phase 1 localStorage stub.
   const legacy = readLegacyStub();
   if (legacy !== null) {
-    const migrated: ProviderProfilesStore = { active: legacy.id, profiles: { [legacy.id]: legacy } };
+    const migrated: ProviderProfilesStore = { active: legacy.id, profiles: { [legacy.id]: legacy }, selectedModelId: DEFAULT_MODEL_ID };
     await store.set(PROFILES_KEY, migrated);
     removeLegacyStub();
     cache = migrated;
@@ -103,6 +105,19 @@ export async function listProfiles(): Promise<ProviderProfile[]> {
   return Object.values(store.profiles);
 }
 
+export async function loadSelectedModelId(): Promise<string> {
+  const store = await loadStore();
+  return store?.selectedModelId ?? DEFAULT_MODEL_ID;
+}
+
+export async function saveSelectedModelId(modelId: string): Promise<void> {
+  const store = await loadStore();
+  if (store === null) return;
+  const validated = providerProfilesStoreSchema.parse({ ...store, selectedModelId: modelId });
+  await (await settings()).set(PROFILES_KEY, validated);
+  cache = validated;
+}
+
 export async function saveProfile(profile: ProviderProfile): Promise<ProviderProfile> {
   const parsed = providerProfileSchema.parse(profile);
   const store = await settings();
@@ -110,6 +125,7 @@ export async function saveProfile(profile: ProviderProfile): Promise<ProviderPro
   const next: ProviderProfilesStore = {
     active: parsed.id,
     profiles: { ...(existing?.profiles ?? {}), [parsed.id]: parsed },
+    selectedModelId: existing?.selectedModelId ?? DEFAULT_MODEL_ID,
   };
   const validated = providerProfilesStoreSchema.parse(next);
   await store.set(PROFILES_KEY, validated);

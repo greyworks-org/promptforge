@@ -303,7 +303,7 @@ export async function fetchHandoffView(connection: VscodeConnection): Promise<Ha
   return parseHandoffView(await response.json() as unknown);
 }
 
-export type SessionAction = 'start' | 'resume' | 'checkpoint' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
+export type SessionAction = 'start' | 'resume' | 'checkpoint' | 'model' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
 
 export interface SessionActionResult {
   status: 'pending' | 'succeeded' | 'failed';

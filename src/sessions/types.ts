@@ -26,6 +26,14 @@ export const runtimeBindingSchema = z.object({
 }).strict();
 export type RuntimeBinding = z.infer<typeof runtimeBindingSchema>;
 
+/** Non-secret model identity accepted by app and VS Code controls. */
+export const sessionModelSelectionSchema = z.object({
+  providerId: z.string().min(1),
+  modelId: z.string().min(1),
+  modelRef: z.string().min(3),
+}).strict();
+export type SessionModelSelection = z.infer<typeof sessionModelSelectionSchema>;
+
 /** Canonical state shared by every runtime adapter. It contains no CLI-specific fields. */
 export const canonicalSessionStateSchema = z.object({
   objective: z.string(),

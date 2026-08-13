@@ -15,10 +15,10 @@
 
 ## Progress
 
-- **Current phase:** PromptForge v1 finalization complete — feature frozen.
-- **Last validated task:** PromptForge v1 finalization (2026-08-13) — optional/degraded VS Code bridge, bounded automatic visual review, Verify & complete integration, and direct persisted functional-evidence connection. Gates: focused TypeScript 36/36; Rust 86/86; typecheck; production build; OpenCode capability validation; Tauri macOS bundle; `git diff --check`.
-- **Current task:** none — PromptForge v1 is finalized; unavailable external execution or subjective visual evidence remains an explicit boundary outcome.
-- **Next task:** none recorded — continue only when the next v1 finalization slice is explicitly requested.
+- **Current phase:** PromptForge v1 multi-model code finalization complete; feature frozen.
+- **Last validated task:** multi-provider model switching (2026-08-13) — shared catalog, compiler selection, same-session RuntimeBinding switching, strict OpenCode model mapping, and optional VS Code control. Gates: focused TypeScript 105/105; Rust 87/87; VS Code extension typecheck; root typecheck; production build; OpenCode capability validation; Tauri macOS bundle; `git diff --check`.
+- **Current task:** manual packaged smoke is required: macOS `open` returns `kLSNoExecutableErr` for the fresh `.app` before a process starts in this host.
+- **Next task:** open the fresh packaged app manually in Finder and confirm it remains open; no further code loop is required.
 
 ## Decisions (confirmed)
 
@@ -39,6 +39,7 @@
 - OpenCode shared visual capability: project `opencode.json` registers the upstream local-only Qwen-MM Core MCP server through native OpenCode configuration, and `.opencode/skills/qwen-mm-plugins-core/SKILL.md` makes the capability discoverable without forced visual context. PromptForge does not transport image bytes, store a Qwen key, add a provider adapter, or couple compiler/session state to Qwen-MM.
 - OpenCode model orchestration: `opencode_models` invokes OpenCode's native catalog command and returns only a validated provider/model read model. If catalog access fails, only the configured model reference is read and marked configured-but-not-enumerated; session state stores the opaque model binding, never provider credentials.
 - OpenCode cwd binding: `ExecutionSession.runtime_cwd` persists the registered canonical project root. Start/resume validates the session binding against the project registry and read-only Git inspection, then passes the exact path through the Rust launch boundary; mismatches block execution.
+- Multi-model v1: `src/models/catalog.ts` is the provider-neutral three-choice display catalog. Provider API model IDs/base URLs and explicit OpenCode `runtimeModelRef` values remain in non-secret provider profiles; compiler selection and session switching never infer or substitute a provider model.
 - Cross-model handoff: the user must explicitly select the source session and validated OpenCode target model. PromptForge creates a new target session, persists one bounded `HandoffArtifact` linking source→handoff→target, launches through the existing OpenCode path with the canonical repo/model/continuation prompt, and never mutates or reuses the source session. The package carries observed evidence and verification-needed acceptance criteria; it does not replay transcripts.
 - VS Code Visual Handoff & Review: the extension remains presentation/control only. The existing session tree exposes Handoff; the focused review panel reads canonical source/session/model data and structured `ContinuationPackage` evidence through the tokenized loopback bridge. PromptForge core owns preview preparation, target validation, target session creation, launch, persisted lineage, and source immutability; only explicit Confirm Handoff crosses into execution.
 - macOS release runtime discovery: the existing bounded executable locator preserves PATH lookup and falls back only to `$HOME/.opencode/bin/opencode` for OpenCode. It verifies executable permissions and `--version` success, and the same resolved path is used by status, model enumeration, and launch; HOME is read from the process environment and no filesystem scan is performed.
@@ -55,7 +56,7 @@
 - U2–U4 assumptions open: English UI, pnpm, macOS-first MVP.
 - R3/R5/R11 unchanged (FTS5, fs scopes, git binary) — later phases.
 - Slice 3 visual automation boundary: PromptForge captures one relevant rendered window and routes it through the existing OpenCode Qwen-MM Core capability. Missing visual target/capability evidence is intentionally surfaced as NEEDS HUMAN REVIEW; the existing Qwen-MM capability configuration remains unchanged.
-- Finalization environment limitation: the persisted Offerpath acceptance TaskSpec was present, but the installed OpenCode runtime could not complete execution in this host (local OpenCode DB was read-only in the sandbox, then the isolated run hung). The rebuilt macOS app bundle also built successfully, but LaunchServices/direct GUI smoke was unavailable in this host.
+- Finalization blocker (2026-08-13): shell installation is `/Users/utku/.opencode/bin/opencode`, version `1.15.10`; resolver unit coverage passes with PATH-independent user-local and standard macOS fallbacks. The fresh bundle builds, but macOS `open` returns `kLSNoExecutableErr: The executable is missing` before startup in this host. Direct execution produces an AppKit `RegisterApplication` abort in the restricted/headless launch context; no repository Rust panic or bridge frame is present. The persisted Offerpath acceptance could not be run through PromptForge without bypassing the packaged-app gate.
 - Dev-environment keychain note (resolved 2026-08-06, kept for reference): each unsigned `tauri dev` rebuild changes the binary's code identity, so a keychain item created by an earlier build can fail re-authorization ("Keychain state unavailable." in Settings) until the key is re-saved from the current build. The fixture key was re-saved through the UI during manual verification. Optional remaining manual pass: replace/delete a key through the UI.
 - Phase 2 startup blocker (resolved 2026-08-06): tauri-plugin-sql's `sql:default` set grants only close/load/select — every migration `execute` was ACL-rejected at runtime, leaving an empty DB and "The project library could not be opened." Fix: explicit `sql:allow-execute` in `src-tauri/capabilities/default.json`; regression test in `tests/capabilities/sqlCapability.test.ts` guards the effective permission set. Unit tests could not catch this (better-sqlite3 bypasses the Tauri ACL); live app verification is the authoritative check for DB init.
 - Phase 3 runtime smoke complete. Remaining environment-dependent checks deferred to pre-release verification (not implementation blockers): native folder picker + wizard UI flow (requires macOS GUI), provider API draft quality (requires configured key). Both are covered at unit level (mock provider, IPC mocks, component tests).
@@ -84,6 +85,9 @@
 - tools/mock-provider/server.mjs · docs/* (incl. `docs/DESIGN_TOOL.md`) · schemas/* · tests colocated (`src/**/*.test.ts*`, `tests/isolation/`, Rust `#[cfg(test)]`)
 
 ## Last tests & results
+
+- 2026-08-13 · Finalization attempt: focused TypeScript 36/36 ✓; Rust 87/87 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; `corepack pnpm tauri build` ✓. Packaged `.app` smoke failed before process start with macOS `kLSNoExecutableErr`; real OpenCode execution and Offerpath acceptance not run.
+- 2026-08-13 · Multi-provider model switching: focused TypeScript 105/105 ✓; Rust 87/87 ✓; VS Code extension typecheck ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; `corepack pnpm tauri build` ✓. One packaged `open` attempt returned the known host-level `kLSNoExecutableErr`; manual packaged smoke remains required.
 
 - 2026-08-12 · PromptForge v1 finalization Slice 3: focused TypeScript 101/101 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. No schema, Rust, provider or Qwen-MM configuration changes.
 - 2026-08-12 · PromptForge v1 finalization Slice 2: focused TypeScript 88/88 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓. No Rust or schema changes.
@@ -123,8 +127,8 @@
 
 ## Git checkpoint
 
-- **Latest commit:** pending `feat: finalize PromptForge v1` commit.
-- **Uncommitted changes:** finalization implementation, focused regression coverage, and this state update pending commit.
+- **Latest commit:** `feat: add multi-provider session model switching` (final v1 code and state record).
+- **Uncommitted changes:** none after the final v1 commit.
 
 ## Recent history
 

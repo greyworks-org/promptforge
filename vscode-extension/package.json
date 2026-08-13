@@ -34,6 +34,10 @@
         "title": "PromptForge: Add Checkpoint Note"
       },
       {
+        "command": "promptforge.switchModel",
+        "title": "PromptForge: Switch Model"
+      },
+      {
         "command": "promptforge.handoff",
         "title": "PromptForge: Handoff"
       }

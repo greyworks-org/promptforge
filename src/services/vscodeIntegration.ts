@@ -3,6 +3,7 @@ import {
   getExecutionSessionView,
   launchExecutionSessionThroughOpenCode,
   saveSessionCheckpoint,
+  switchSessionModel,
   type ExecutionSessionView,
 } from '../sessions/executionSessionService';
 import {
@@ -11,6 +12,7 @@ import {
   type HandoffPreview,
 } from '../handoff/crossModelService';
 import { openCodeModelSchema, getOpenCodeModelDiscovery, type OpenCodeModel } from './opencodeModels';
+import { sessionModelSelectionSchema } from '../sessions/types';
 
 interface ReadModelEndpoint {
   baseUrl: string;
@@ -29,7 +31,7 @@ export interface VscodeConnection {
   sessionId: string;
 }
 
-export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
+export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint' | 'model' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
 
 let processingVscodeAction = false;
 
@@ -190,6 +192,18 @@ export async function processVscodeSessionAction(): Promise<void> {
       const note = action.note?.trim() ?? '';
       if (!view.controls.canCheckpoint || note === '') throw new Error('A non-empty checkpoint note is required.');
       await saveSessionCheckpoint(action.projectId, action.sessionId, note);
+    } else if (action.action === 'model') {
+      const selection = sessionModelSelectionSchema.parse(action.payload);
+      let availability: { available?: boolean; configured?: boolean } = {};
+      if (view.session.runtime === 'opencode') {
+        const discovery = await getOpenCodeModelDiscovery(action.projectId, selection.modelRef);
+        const model = discovery.models.find((candidate) => candidate.modelRef === selection.modelRef);
+        if (model === undefined || (!model.available && !model.configured)) {
+          throw new Error('MODEL UNAVAILABLE IN OPENCODE');
+        }
+        availability = model;
+      }
+      await switchSessionModel(action.projectId, action.sessionId, { ...selection, ...availability });
     } else {
       if (action.action === 'start' && !view.controls.canStart) throw new Error('This OpenCode session is not eligible to start.');
       if (action.action === 'resume' && !view.controls.canResume) throw new Error('This OpenCode session is not eligible to resume.');
@@ -199,7 +213,7 @@ export async function processVscodeSessionAction(): Promise<void> {
     await invokeIpc('vscode_complete_session_action', {
       actionId: action.id,
       success: true,
-      message: action.action === 'checkpoint' ? 'Checkpoint note saved.' : `OpenCode session ${action.action} requested.`,
+      message: action.action === 'checkpoint' ? 'Checkpoint note saved.' : action.action === 'model' ? 'PromptForge session model switched.' : `OpenCode session ${action.action} requested.`,
     });
   } catch (error) {
     if (action !== null) {

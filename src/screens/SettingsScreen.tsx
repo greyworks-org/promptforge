@@ -41,8 +41,10 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   const runTest = deps?.testConnection ?? testConnection;
 
   const [label, setLabel] = useState('');
+  const [providerId, setProviderId] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [modelId, setModelId] = useState('');
+  const [runtimeModelRef, setRuntimeModelRef] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [jsonMode, setJsonMode] = useState<'auto' | 'on' | 'off'>('auto');
   const [reasoningEffort, setReasoningEffort] = useState<'none' | 'low' | 'medium' | 'high' | 'maximum'>('high');
@@ -75,8 +77,10 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
       if (cancelled) return;
       const profile = existing ?? defaultProfile();
       setLabel(profile.label);
+      setProviderId(profile.providerId ?? '');
       setBaseUrl(profile.baseUrl);
       setModelId(profile.modelId);
+      setRuntimeModelRef(profile.runtimeModelRef ?? '');
       setJsonMode(profile.capabilities.jsonMode);
       setReasoningEffort(profile.params.reasoningEffort ?? 'high');
       setLoading(false);
@@ -91,8 +95,10 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   const buildCandidate = (): unknown => ({
     id: DEFAULT_PROFILE_ID,
     label: label.trim() === '' ? 'Default provider' : label.trim(),
+    ...(providerId.trim() ? { providerId: providerId.trim() } : {}),
     baseUrl: baseUrl.trim(),
     modelId: modelId.trim(),
+    ...(runtimeModelRef.trim() ? { runtimeModelRef: runtimeModelRef.trim() } : {}),
     capabilities: { jsonMode },
     params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000, reasoningEffort },
   });
@@ -148,8 +154,10 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     const profile: ProviderProfile = {
       id: DEFAULT_PROFILE_ID,
       label: label.trim() === '' ? 'Default provider' : label.trim(),
+      ...(providerId.trim() ? { providerId: providerId.trim() } : {}),
       baseUrl: urlCheck.value,
       modelId: modelId.trim(),
+      ...(runtimeModelRef.trim() ? { runtimeModelRef: runtimeModelRef.trim() } : {}),
       capabilities: { jsonMode },
       params: { temperature: 0.2, maxTokens: 4096, timeoutMs: 60_000, reasoningEffort },
     };
@@ -195,6 +203,17 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
           />
         </label>
 
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Provider identity</span>
+          <select className={inputClass} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+            <option value="">Choose a provider</option>
+            <option value="openai">OpenAI</option>
+            <option value="qwen">Qwen</option>
+            <option value="deepseek">DeepSeek</option>
+          </select>
+          <span className="text-xs text-zinc-400">Used to bind the configured endpoint to the compact model selector.</span>
+        </label>
+
         <div className="grid gap-1 text-sm">
           <label className="grid gap-1">
             <span className="font-medium">Base URL</span>
@@ -218,6 +237,12 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
             onChange={(e) => setModelId(e.target.value)}
             placeholder="As configured on your endpoint (no default)"
           />
+        </label>
+
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">OpenCode model reference (optional)</span>
+          <input className={inputClass} value={runtimeModelRef} onChange={(e) => setRuntimeModelRef(e.target.value)} placeholder="provider/configured-model-id" />
+          <span className="text-xs text-zinc-400">Required when this provider is selected for an OpenCode session; PromptForge never guesses it.</span>
         </label>
 
         <div className="grid gap-1 text-sm">

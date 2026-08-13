@@ -9,7 +9,7 @@ import {
   renderSessionContinuation,
   renderSessionTask,
   saveSessionCheckpoint,
-  selectOpenCodeModel,
+  switchSessionModel,
   switchSessionRuntime,
   updateSessionInstruction,
   verifyExecutionSession,
@@ -24,6 +24,8 @@ import {
   selectProjectContextDocument,
 } from '../services/projectContextService';
 import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
+import { listProfiles } from '../services/settingsService';
+import { MODEL_CATALOG, resolveCatalogModel, runtimeModelRef, catalogLabelForBinding } from '../models/catalog';
 import { getProject } from '../services/projectsService';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
@@ -57,6 +59,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [guidance, setGuidance] = useState<GuidanceEntry[]>([]);
   const [openCodeAvailability, setOpenCodeAvailability] = useState<RuntimeAvailability | null>(null);
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelDiscovery | null>(null);
+  const [providerProfiles, setProviderProfiles] = useState<Awaited<ReturnType<typeof listProfiles>>>([]);
   const [registeredRoot, setRegisteredRoot] = useState<string | null>(null);
   const [vscodeConnection, setVscodeConnection] = useState<string | null>(null);
   const [vscodeStatus, setVscodeStatus] = useState<'unknown' | 'available' | 'unavailable'>('unknown');
@@ -76,6 +79,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       const project = await getProject(projectId);
       if (project === null) throw new Error('The registered project could not be found.');
       setRegisteredRoot(project.repoPath);
+      try { setProviderProfiles(await listProfiles()); } catch { setProviderProfiles([]); }
       const reconciled = await reconcileProjectSessions(projectId);
       setSessions(reconciled);
       const nextId = selectedId && reconciled.some((session) => session.id === selectedId)
@@ -175,12 +179,30 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
     }
   };
 
-  const chooseOpenCodeModel = async (modelRef: string) => {
-    if (!selected || selected.runtime !== 'opencode' || !openCodeModels) return;
-    const model = openCodeModels.models.find((item) => item.modelRef === modelRef);
-    if (!model) return;
+  const chooseSessionModel = async (modelId: string) => {
+    if (!selected) return;
+    const resolved = resolveCatalogModel(modelId, providerProfiles);
+    if (!resolved.ok) { setError(resolved.error); return; }
+    const modelRef = runtimeModelRef(resolved.value.profile);
+    if (modelRef === null) {
+      setError(`CONFIGURATION REQUIRED: add an OpenCode model reference for ${resolved.value.model.displayName} in Settings.`);
+      return;
+    }
+    const capability = selected.runtime === 'opencode'
+      ? openCodeModels?.models.find((item) => item.modelRef === modelRef)
+      : undefined;
+    if (selected.runtime === 'opencode' && (capability === undefined || (!capability.available && !capability.configured))) {
+      setError('MODEL UNAVAILABLE IN OPENCODE');
+      return;
+    }
     try {
-      await selectOpenCodeModel(projectId, selected.id, model);
+      await switchSessionModel(projectId, selected.id, {
+        providerId: resolved.value.profile.providerId ?? resolved.value.model.providerId,
+        modelId: resolved.value.profile.modelId,
+        modelRef,
+        available: capability?.available,
+        configured: capability?.configured,
+      });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'OpenCode model selection failed.');
@@ -324,6 +346,9 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
     || registeredRoot === null
     || selected.runtimeCwd !== registeredRoot
   );
+  const activeCatalogLabel = selected === null
+    ? null
+    : catalogLabelForBinding(selected.binding.providerId, selected.binding.modelId);
 
   return (
     <section className="space-y-5">
@@ -380,23 +405,26 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 </div>
               </div>
 
+              <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
+                <label htmlFor="session-model" className="text-xs font-medium text-indigo-950">Session model</label>
+                <select
+                  id="session-model"
+                  value={activeCatalogLabel ? MODEL_CATALOG.find((model) => model.displayName === activeCatalogLabel)?.id ?? '' : ''}
+                  onChange={(event) => void chooseSessionModel(event.target.value)}
+                  className="mt-1 block w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs"
+                >
+                  <option value="">Choose a model…</option>
+                  {MODEL_CATALOG.map((model) => {
+                    const configured = resolveCatalogModel(model.id, providerProfiles).ok;
+                    return <option key={model.id} value={model.id}>{model.displayName}{configured ? '' : ' · configuration required'}</option>;
+                  })}
+                </select>
+                <p className="mt-1 text-[11px] text-indigo-800">Explicit model switching preserves this session, TaskSpec, context and checkpoint.</p>
+              </div>
+
               {selected.runtime === 'opencode' && (
                 <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
-                  <label htmlFor="opencode-model" className="text-xs font-medium text-indigo-950">OpenCode model</label>
-                  <select
-                    id="opencode-model"
-                    value={selected.binding.modelRef ?? ''}
-                    onChange={(event) => void chooseOpenCodeModel(event.target.value)}
-                    disabled={!openCodeModels || openCodeModels.models.length === 0}
-                    className="mt-1 block w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs"
-                  >
-                    <option value="">Use OpenCode's configured default</option>
-                    {openCodeModels?.models.map((model) => (
-                      <option key={model.modelRef} value={model.modelRef}>
-                        {model.displayName} · {model.availability}
-                      </option>
-                    ))}
-                  </select>
+                  <p className="text-xs font-medium text-indigo-950">OpenCode availability</p>
                   {openCodeModels?.warning && <p className="mt-1 text-[11px] text-amber-700">{openCodeModels.warning}</p>}
                   <p className="mt-1 text-[11px] text-indigo-800">Provider credentials remain in OpenCode; PromptForge stores only this model binding.</p>
                 </div>

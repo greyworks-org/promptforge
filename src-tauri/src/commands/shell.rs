@@ -63,7 +63,19 @@ fn user_local_runtime_path(runtime: &str, home: Option<&Path>) -> Option<PathBuf
     Some(home?.join(".opencode").join("bin").join("opencode"))
 }
 
-/// Resolve only explicit PATH entries, then the documented user-local OpenCode location.
+fn standard_runtime_paths(runtime: &str) -> &'static [&'static str] {
+    if runtime == "opencode" {
+        &[
+            "/opt/homebrew/bin/opencode",
+            "/usr/local/bin/opencode",
+            "/usr/bin/opencode",
+        ]
+    } else {
+        &[]
+    }
+}
+
+/// Resolve only explicit PATH entries, then documented user-local and standard macOS locations.
 /// No directory scanning or recursive HOME search is performed.
 fn resolve_runtime_executable(
     runtime: &str,
@@ -78,6 +90,9 @@ fn resolve_runtime_executable(
         }
     }
     if let Some(candidate) = user_local_runtime_path(runtime, home) {
+        if is_executable_file(&candidate) { return Some(candidate); }
+    }
+    for candidate in standard_runtime_paths(runtime).iter().map(PathBuf::from) {
         if is_executable_file(&candidate) { return Some(candidate); }
     }
     Some(PathBuf::from(binary))
@@ -806,6 +821,19 @@ mod tests {
             Some(PathBuf::from("/Users/example/.opencode/bin/opencode")),
         );
         assert_eq!(user_local_runtime_path("opencode", None), None);
+    }
+
+    #[test]
+    fn packaged_app_resolution_has_standard_macos_fallbacks() {
+        assert_eq!(
+            standard_runtime_paths("opencode"),
+            &[
+                "/opt/homebrew/bin/opencode",
+                "/usr/local/bin/opencode",
+                "/usr/bin/opencode",
+            ],
+        );
+        assert!(standard_runtime_paths("codex").is_empty());
     }
 
     #[test]

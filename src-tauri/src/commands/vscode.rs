@@ -177,7 +177,7 @@ impl ReadModelBridge {
     fn queue_action(&self, input: SessionActionRequest) -> Result<SessionAction, String> {
         validate_id(&input.project_id, "project id")?;
         validate_id(&input.session_id, "session id")?;
-        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint" | "handoff-context" | "handoff-preview" | "handoff-confirm") {
+        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint" | "model" | "handoff-context" | "handoff-preview" | "handoff-confirm") {
             return Err("Unsupported VS Code session action.".into());
         }
         if input.note.as_ref().is_some_and(|note| note.len() > 4000) {

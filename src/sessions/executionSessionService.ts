@@ -23,7 +23,7 @@ import {
   validateRuntimeProject,
   type RuntimeAvailability,
 } from '../services/runtimeService';
-import type { OpenCodeModel } from '../services/opencodeModels';
+import { getOpenCodeModelDiscovery, type OpenCodeModel } from '../services/opencodeModels';
 import { runAutomaticVisualReview, type AutomaticVisualReviewResult } from '../services/visualReview';
 import { adapterFor } from './adapters';
 import {
@@ -36,6 +36,8 @@ import {
   type SessionEventKind,
   type SessionRuntime,
   type RuntimeBinding,
+  sessionModelSelectionSchema,
+  type SessionModelSelection,
 } from './types';
 
 let testRunner: QueryRunner | null = null;
@@ -285,6 +287,30 @@ export async function updateSessionBinding(
   return updated;
 }
 
+/** Change only the model identity for the next model-dependent execution. */
+export async function switchSessionModel(
+  projectId: string,
+  sessionId: string,
+  selection: SessionModelSelection & { available?: boolean; configured?: boolean },
+): Promise<ExecutionSession> {
+  const session = await getExecutionSession(projectId, sessionId);
+  if (session === null) throw new Error('Execution session was not found for this project.');
+  if (session.runtime === 'opencode' && selection.available === false && selection.configured !== true) {
+    throw new Error('MODEL UNAVAILABLE IN OPENCODE');
+  }
+  const validated = sessionModelSelectionSchema.parse({
+    providerId: selection.providerId,
+    modelId: selection.modelId,
+    modelRef: selection.modelRef,
+  });
+  return updateSessionBinding(projectId, sessionId, {
+    ...session.binding,
+    providerId: validated.providerId,
+    modelId: validated.modelId,
+    modelRef: validated.modelRef,
+  });
+}
+
 export async function updateSessionInstruction(
   projectId: string,
   sessionId: string,
@@ -307,12 +333,7 @@ export async function selectOpenCodeModel(
   const session = await getExecutionSession(projectId, sessionId);
   if (session === null) throw new Error('Execution session was not found for this project.');
   if (session.runtime !== 'opencode') throw new Error('Switch the session to OpenCode before selecting an OpenCode model.');
-  return updateSessionBinding(projectId, sessionId, {
-    ...session.binding,
-    providerId: model.providerId,
-    modelId: model.modelId,
-    modelRef: model.modelRef,
-  });
+  return switchSessionModel(projectId, sessionId, model);
 }
 
 export async function finishExecutionSession(
@@ -421,6 +442,15 @@ export async function launchExecutionSessionThroughOpenCode(
     const projectRoot = await validateRuntimeProject(projectId, session.runtimeCwd);
     if (session.runtimeCwd === null) {
       session = await (await repo()).update(projectId, sessionId, { runtimeCwd: projectRoot }) ?? session;
+    }
+    if (session === null) throw new Error('Execution session was not found after runtime cwd binding.');
+    const modelRef = session.binding.modelRef;
+    if (modelRef !== null) {
+      const discovery = await getOpenCodeModelDiscovery(projectId, modelRef);
+      const selectedModel = discovery.models.find((model) => model.modelRef === modelRef);
+      if (selectedModel === undefined || (!selectedModel.available && !selectedModel.configured)) {
+        throw new Error('MODEL UNAVAILABLE IN OPENCODE');
+      }
     }
     const launchResult = await launchRuntimeProcess({
       runtime: 'opencode',

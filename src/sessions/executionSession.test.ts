@@ -19,12 +19,16 @@ import {
   renderSessionTask,
   saveSessionCheckpoint,
   selectOpenCodeModel,
+  switchSessionModel,
   startExecutionSession,
   switchSessionRuntime,
   updateSessionInstruction,
   setDbForTests,
 } from './executionSessionService';
 import * as runtimeService from '../services/runtimeService';
+import { getOpenCodeModelDiscovery } from '../services/opencodeModels';
+
+vi.mock('../services/opencodeModels', () => ({ getOpenCodeModelDiscovery: vi.fn() }));
 
 let runner: QueryRunner;
 
@@ -99,6 +103,14 @@ beforeEach(async () => {
   setDbForTests(runner);
   setProjectDb(runner);
   vi.spyOn(runtimeService, 'validateRuntimeProject').mockResolvedValue('/tmp/session-project');
+  vi.mocked(getOpenCodeModelDiscovery).mockImplementation(async (_projectId, selectedModelRef) => ({
+    runtime: 'opencode',
+    models: selectedModelRef ? [{
+      runtime: 'opencode', providerId: selectedModelRef.split('/')[0], modelId: selectedModelRef.split('/').slice(1).join('/'),
+      modelRef: selectedModelRef, displayName: selectedModelRef, available: true, configured: true, availability: 'available',
+    }] : [],
+    source: 'opencode-cli', warning: null,
+  }));
 });
 
 afterEach(async () => {
@@ -217,6 +229,57 @@ describe('execution session continuity', () => {
       modelRef: 'openrouter/deepseek/deepseek-v4-pro',
       continuationPrompt: null,
     }));
+  });
+
+  it('switches Luna, Qwen and DeepSeek on one session without changing canonical state', async () => {
+    const created = await startExecutionSession({
+      projectId: 'project-session', runtime: 'opencode', task, memory, git,
+      binding: {
+        providerId: 'openai', modelId: 'luna-api-id', modelRef: 'openai/luna-runtime-id', variant: null,
+        runtimeSessionId: 'opencode-session', detectedVersion: '1.15.10', capabilities: ['model-routing'],
+      },
+    });
+    await saveSessionCheckpoint('project-session', created.id, 'Checkpoint survives model switches.');
+    const original = await getExecutionSession('project-session', created.id);
+    const qwen = await switchSessionModel('project-session', created.id, {
+      providerId: 'qwen', modelId: 'configured-qwen-id', modelRef: 'qwen/configured-qwen-runtime', available: true, configured: true,
+    });
+    vi.spyOn(runtimeService, 'detectRuntime').mockResolvedValue({
+      runtime: 'opencode', binary: 'opencode', installed: true, canLaunch: true,
+      supportsResume: true, supportsModelRouting: true, version: '1.15.10', capabilities: ['model-routing'], error: null,
+    });
+    const launch = vi.spyOn(runtimeService, 'launchRuntimeProcess').mockResolvedValue({
+      started: true, pid: 4321, exitCode: null, stderr: null,
+    });
+    await launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume');
+    expect(launch).toHaveBeenLastCalledWith(expect.objectContaining({ modelRef: 'qwen/configured-qwen-runtime' }));
+    const deepseek = await switchSessionModel('project-session', created.id, {
+      providerId: 'deepseek', modelId: 'configured-deepseek-id', modelRef: 'deepseek/configured-deepseek-runtime', available: true, configured: true,
+    });
+    await launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume');
+    expect(launch).toHaveBeenLastCalledWith(expect.objectContaining({ modelRef: 'deepseek/configured-deepseek-runtime' }));
+    const luna = await switchSessionModel('project-session', created.id, {
+      providerId: 'openai', modelId: 'luna-api-id', modelRef: 'openai/luna-runtime-id', available: true, configured: true,
+    });
+    await launchExecutionSessionThroughOpenCode('project-session', created.id, 'resume');
+    expect(launch).toHaveBeenLastCalledWith(expect.objectContaining({ modelRef: 'openai/luna-runtime-id' }));
+    expect(qwen.id).toBe(created.id);
+    expect(deepseek.id).toBe(created.id);
+    expect(luna.id).toBe(created.id);
+    expect(luna.taskId).toBe(original?.taskId);
+    expect(luna.compilationId).toBe(original?.compilationId);
+    expect(luna.state).toEqual(original?.state);
+    expect(luna.runtimeCwd).toBe(original?.runtimeCwd);
+    expect((await listSessionEvents('project-session', created.id)).some((event) => event.content.includes('Checkpoint survives'))).toBe(true);
+  });
+
+  it('blocks an unavailable OpenCode model without falling back', async () => {
+    const created = await startExecutionSession({ projectId: 'project-session', runtime: 'opencode', task, memory, git });
+    await expect(selectOpenCodeModel('project-session', created.id, {
+      runtime: 'opencode', providerId: 'qwen', modelId: 'missing', modelRef: 'qwen/missing', displayName: 'Qwen 3.8 Max',
+      available: false, configured: false, availability: 'unknown',
+    })).rejects.toThrow('MODEL UNAVAILABLE IN OPENCODE');
+    expect((await getExecutionSession('project-session', created.id))?.binding.modelRef).toBeNull();
   });
 
   it('binds separate projects to separate persisted OpenCode cwd values', async () => {
