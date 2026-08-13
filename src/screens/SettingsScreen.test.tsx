@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SettingsScreen, type SettingsScreenProps } from './SettingsScreen';
 import type { ConnectionTestResult } from '../services/providerService';
 import { defaultProfile, type ProviderProfile } from '../schemas/providerProfile';
@@ -29,6 +29,42 @@ function successResult(): ConnectionTestResult {
     errorClass: null,
     message: 'Connection successful.',
   };
+}
+
+function providerProfile(providerId: 'openai' | 'qwen' | 'deepseek', overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return {
+    ...defaultProfile(),
+    id: providerId === 'openai' ? 'default' : `${providerId}-primary`,
+    label: `${providerId} profile`,
+    providerId,
+    baseUrl: `https://${providerId}.example.com/v1`,
+    modelId: `${providerId}-model`,
+    runtimeModelRef: `${providerId}/${providerId}-model`,
+    ...overrides,
+  };
+}
+
+function makeProfileStore(profiles: ProviderProfile[]) {
+  let stored = [...profiles];
+  return makeDeps({
+    loadProfile: vi.fn(async () => stored[0] ?? null),
+    listProfiles: vi.fn(async () => stored),
+    saveProfile: vi.fn(async (profile: ProviderProfile) => {
+      stored = [...stored.filter((candidate) => candidate.id !== profile.id), profile];
+      return profile;
+    }),
+  });
+}
+
+async function settleAsyncEffects() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+}
+
+async function selectCatalogModel(modelId: string) {
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp(modelId === 'qwen-3.8-max' ? 'Qwen 3.8 Max' : 'DeepSeek V4 Flash') }));
+  await waitFor(() => expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe(modelId));
 }
 
 async function fillValidForm() {
@@ -159,5 +195,136 @@ describe('SettingsScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(deps.testConnection).not.toHaveBeenCalled();
+  });
+
+  it('renders the saved Luna profile on initial load', async () => {
+    const luna = providerProfile('openai', { modelId: 'luna-api-model', runtimeModelRef: 'openai/luna-api-model' });
+    render(<SettingsScreen deps={makeProfileStore([luna])} />);
+
+    expect(((await screen.findAllByRole('combobox'))[1] as HTMLSelectElement).value).toBe('luna-5.6-high');
+    expect((screen.getByLabelText('Provider identity') as HTMLSelectElement).value).toBe('openai');
+    expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('luna-api-model');
+  });
+
+  it('keeps Qwen selected after async effects settle', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+
+    await selectCatalogModel('qwen-3.8-max');
+    await settleAsyncEffects();
+
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('qwen-3.8-max');
+    expect((screen.getByLabelText('Provider identity') as HTMLSelectElement).value).toBe('qwen');
+    expect(screen.getByText('Qwen 3.8 Max · setup required')).toBeTruthy();
+  });
+
+  it('keeps DeepSeek selected after async effects settle', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+
+    await selectCatalogModel('deepseek-v4-flash');
+    await settleAsyncEffects();
+
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('deepseek-v4-flash');
+    expect((screen.getByLabelText('Provider identity') as HTMLSelectElement).value).toBe('deepseek');
+    expect(screen.getByText('DeepSeek V4 Flash · setup required')).toBeTruthy();
+  });
+
+  it('saves Qwen and remains on Qwen', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('qwen-3.8-max');
+    await fillValidForm();
+    fireEvent.change(screen.getByPlaceholderText('provider/configured-model-id'), { target: { value: 'qwen/qwen-saved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() => expect(deps.saveProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'qwen-primary', providerId: 'qwen', runtimeModelRef: 'qwen/qwen-saved' })));
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('qwen-3.8-max');
+    expect((screen.getByLabelText('Provider identity') as HTMLSelectElement).value).toBe('qwen');
+  });
+
+  it('saves DeepSeek and remains on DeepSeek', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('deepseek-v4-flash');
+    await fillValidForm();
+    fireEvent.change(screen.getByPlaceholderText('provider/configured-model-id'), { target: { value: 'deepseek/deepseek-saved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() => expect(deps.saveProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'deepseek-primary', providerId: 'deepseek', runtimeModelRef: 'deepseek/deepseek-saved' })));
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('deepseek-v4-flash');
+    expect((screen.getByLabelText('Provider identity') as HTMLSelectElement).value).toBe('deepseek');
+  });
+
+  it('restores independent Luna and Qwen values across switches', async () => {
+    const luna = providerProfile('openai', { baseUrl: 'https://luna.example.com/v1', modelId: 'luna-model', runtimeModelRef: 'openai/luna-model' });
+    const deps = makeProfileStore([luna]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('qwen-3.8-max');
+    await fillValidForm();
+    fireEvent.change(screen.getByPlaceholderText('provider/configured-model-id'), { target: { value: 'qwen/qwen-independent' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await waitFor(() => expect(deps.saveProfile).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /Luna 5\.6 High/ }));
+    await waitFor(() => expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('luna-model'));
+    fireEvent.click(screen.getByRole('button', { name: /Qwen 3\.8 Max/ }));
+    await waitFor(() => expect((screen.getByLabelText('Model ID') as HTMLInputElement).value).toBe('test-model'));
+    expect((screen.getByPlaceholderText('provider/configured-model-id') as HTMLInputElement).value).toBe('qwen/qwen-independent');
+  });
+
+  it('updates Setup required and Configured status for a saved provider', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    expect(screen.getByRole('button', { name: /Qwen 3\.8 Max.*Setup required/ })).toBeTruthy();
+    await selectCatalogModel('qwen-3.8-max');
+    await fillValidForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Qwen 3\.8 Max.*Configured/ })).toBeTruthy());
+  });
+
+  it('looks up Keychain state using the selected profile ID', async () => {
+    const deps = makeProfileStore([providerProfile('openai')]);
+    deps.hasApiKey = vi.fn(async (id: string) => id === 'qwen-primary');
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('qwen-3.8-max');
+    await waitFor(() => expect(deps.hasApiKey).toHaveBeenLastCalledWith('qwen-primary'));
+    expect(screen.getByText('Key is stored in the Keychain.')).toBeTruthy();
+  });
+
+  it('tests the currently selected provider profile', async () => {
+    const deps = makeProfileStore([providerProfile('openai'), providerProfile('qwen')]);
+    render(<SettingsScreen deps={deps} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('qwen-3.8-max');
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+
+    await waitFor(() => expect(deps.testConnection).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'qwen-primary',
+      providerId: 'qwen',
+    })));
+  });
+
+  it('preserves independent OpenCode model references per provider', async () => {
+    const profiles = [
+      providerProfile('openai', { runtimeModelRef: 'openai/luna-ref' }),
+      providerProfile('qwen', { runtimeModelRef: 'qwen/qwen-ref' }),
+      providerProfile('deepseek', { runtimeModelRef: 'deepseek/deepseek-ref' }),
+    ];
+    render(<SettingsScreen deps={makeProfileStore(profiles)} />);
+    await screen.findByLabelText('Base URL');
+    await selectCatalogModel('qwen-3.8-max');
+    expect((screen.getByPlaceholderText('provider/configured-model-id') as HTMLInputElement).value).toBe('qwen/qwen-ref');
+    await selectCatalogModel('deepseek-v4-flash');
+    expect((screen.getByPlaceholderText('provider/configured-model-id') as HTMLInputElement).value).toBe('deepseek/deepseek-ref');
+    await selectCatalogModel('qwen-3.8-max');
+    expect((screen.getByPlaceholderText('provider/configured-model-id') as HTMLInputElement).value).toBe('qwen/qwen-ref');
   });
 });

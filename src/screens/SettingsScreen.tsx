@@ -66,11 +66,27 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
 
   const refreshKeyState = useCallback(async () => {
     try {
-      const stored = await keyExists(DEFAULT_PROFILE_ID);
+      const stored = await keyExists(profileId);
       setKeyState(stored ? 'stored' : 'absent');
     } catch {
       setKeyState('unknown');
     }
+  }, [keyExists, profileId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const stored = await keyExists(profileId);
+        if (!cancelled) setKeyState(stored ? 'stored' : 'absent');
+      } catch {
+        if (!cancelled) setKeyState('unknown');
+      }
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
   }, [keyExists, profileId]);
 
   useEffect(() => {
@@ -98,13 +114,12 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
       setJsonMode(profile.capabilities.jsonMode);
       setReasoningEffort(profile.params.reasoningEffort ?? 'high');
       setLoading(false);
-      void refreshKeyState();
     };
     void init();
     return () => {
       cancelled = true;
     };
-  }, [load, list, refreshKeyState]);
+  }, [load, list]);
 
   const selectCatalogModel = (modelId: string) => {
     const model = MODEL_CATALOG.find((candidate) => candidate.id === modelId);
