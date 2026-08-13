@@ -13,12 +13,18 @@ import { getGitSnapshot, type GitSnapshot } from '../services/gitState';
 import { getMemory } from '../services/memoryService';
 import { getProject, listProjects } from '../services/projectsService';
 import {
+  deriveSessionFunctionalEvidence,
+  resolveCompletionOutcome,
+  type CompletionResolution,
+} from '../services/completionGate';
+import {
   detectRuntime,
   launchRuntimeProcess,
   validateRuntimeProject,
   type RuntimeAvailability,
 } from '../services/runtimeService';
 import type { OpenCodeModel } from '../services/opencodeModels';
+import { runAutomaticVisualReview, type AutomaticVisualReviewResult } from '../services/visualReview';
 import { adapterFor } from './adapters';
 import {
   emptySessionState,
@@ -133,6 +139,52 @@ export async function startExecutionSession(input: StartSessionInput): Promise<E
 
 export async function getExecutionSession(projectId: string, sessionId: string): Promise<ExecutionSession | null> {
   return (await repo()).getById(projectId, sessionId);
+}
+
+export interface ExecutionVerificationResult {
+  taskId: string;
+  visualReview: AutomaticVisualReviewResult;
+  outcome: CompletionResolution;
+}
+
+/** Run the existing bounded verification contract before a session is completed. */
+export async function verifyExecutionSession(
+  projectId: string,
+  sessionId: string,
+): Promise<ExecutionVerificationResult> {
+  const session = await getExecutionSession(projectId, sessionId);
+  if (session === null) throw new Error('Execution session was not found for this project.');
+  if (session.compilationId === null) throw new Error('This session has no canonical TaskSpec to verify.');
+  const compilation = await getCompilationForProject(projectId, session.compilationId);
+  if (compilation?.taskspecJson === null || compilation?.taskspecJson === undefined) {
+    throw new Error('This session has no persisted canonical TaskSpec to verify.');
+  }
+  const task = taskSpecSchema.parse(JSON.parse(compilation.taskspecJson));
+  if (task.project_id !== projectId || task.task_id !== session.taskId) {
+    throw new Error('The session and canonical TaskSpec do not belong to the same project/task.');
+  }
+
+  const visualReview = await runAutomaticVisualReview(task, {
+    projectId,
+    applyCorrectivePass: session.runtime === 'opencode' && session.status !== 'completed'
+      ? async (instruction) => {
+          await updateSessionInstruction(projectId, sessionId, instruction);
+          await launchExecutionSessionThroughOpenCode(projectId, sessionId, 'resume', instruction);
+        }
+      : undefined,
+  });
+  const outcome = resolveCompletionOutcome(task, {
+    functionalFlow: deriveSessionFunctionalEvidence(task, session.state),
+    ...(visualReview.evidence ? { visualReview: visualReview.evidence } : {}),
+  });
+  await appendSessionEvent(
+    projectId,
+    sessionId,
+    'tool_observation',
+    `Completion verification: ${outcome.status}. Visual review: ${visualReview.evidence?.status ?? 'not applicable'}; screenshots: ${visualReview.screenshotCount}; reviews: ${visualReview.reviewCount}; corrective passes: ${visualReview.correctivePasses}.`,
+    session.runtime,
+  );
+  return { taskId: task.task_id, visualReview, outcome };
 }
 
 export async function listExecutionSessions(projectId: string): Promise<ExecutionSession[]> {

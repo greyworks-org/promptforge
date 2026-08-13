@@ -11,7 +11,7 @@ import { renderContinuationPackage } from '../handoff/crossModel';
 import { assembleSnapshot } from '../handoff/snapshot';
 import type { MemoryRecord } from '../db/repos/projectMemory';
 import type { GitSnapshot } from './gitState';
-import { deriveCompletionGate, resolveCompletionOutcome } from './completionGate';
+import { deriveCompletionGate, deriveSessionFunctionalEvidence, resolveCompletionOutcome } from './completionGate';
 import { taskSpecSchema } from '../schemas/taskspec';
 
 function makeTask(overrides: Partial<TaskSpec> = {}): TaskSpec {
@@ -102,6 +102,32 @@ describe('PromptForge v1 Slice 2 scope lock and completion control', () => {
     });
     expect(result.status).toBe('BLOCKED');
     expect(result.unresolvedCritical).toContain('Acceptance: The requested feature works through its core user flow.');
+  });
+
+  it('only promotes directly recorded session requirements to functional evidence', () => {
+    const task = makeTask();
+    const evidence = deriveSessionFunctionalEvidence(task, {
+      completed: ['Open the feature', 'The implementation should work.'],
+      lastValidation: 'Complete the core user flow',
+    });
+    expect(evidence).toEqual([
+      {
+        requirement: 'Open the feature',
+        status: 'VERIFIED',
+        evidence: 'Open the feature',
+        source: 'inspection',
+      },
+      {
+        requirement: 'Complete the core user flow',
+        status: 'VERIFIED',
+        evidence: 'Complete the core user flow',
+        source: 'inspection',
+      },
+    ]);
+    expect(resolveCompletionOutcome(task, {
+      ...evidenceFor(task),
+      functionalFlow: evidence,
+    }).status).toBe('READY');
   });
 
   it('resolves a technically complete UI task to NEEDS HUMAN REVIEW when subjective review remains', () => {

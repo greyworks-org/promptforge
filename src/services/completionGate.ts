@@ -54,6 +54,35 @@ export interface CompletionResolution {
   blockers: string[];
 }
 
+/** Convert explicit persisted session progress into requirement-scoped evidence. */
+export function deriveSessionFunctionalEvidence(
+  task: TaskSpec,
+  sessionState: { completed: string[]; lastValidation: string | null },
+): VerificationEvidence[] {
+  const plan = deriveFunctionalVerificationPlan(task);
+  if (!plan.applicable) return [];
+  const recorded = [
+    ...sessionState.completed,
+    ...(sessionState.lastValidation ? [sessionState.lastValidation] : []),
+  ].map((item) => item.trim()).filter((item) => item.length > 0);
+  return plan.requirements.map((requirement) => {
+    const matchingRecord = recorded.find((item) => item === requirement || item.includes(requirement));
+    return matchingRecord
+      ? {
+          requirement,
+          status: 'VERIFIED' as const,
+          evidence: matchingRecord,
+          source: 'inspection' as const,
+        }
+      : {
+          requirement,
+          status: 'NOT VERIFIED' as const,
+          evidence: 'No direct functional verification evidence is persisted for this requirement.',
+          source: 'inspection' as const,
+        };
+  });
+}
+
 export function deriveCompletionGate(task: TaskSpec): CompletionGate {
   const functionalFlow = deriveFunctionalVerificationPlan(task);
   const visualReviewRequired = isVisualReviewApplicable(task);

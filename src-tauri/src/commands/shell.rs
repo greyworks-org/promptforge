@@ -28,6 +28,14 @@ pub struct RuntimeLaunchResult {
     pub stderr: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualReviewResult {
+    pub output: String,
+    pub target: String,
+    pub screenshot_captured: bool,
+}
+
 fn runtime_binary(runtime: &str) -> Option<&'static str> {
     match runtime {
         "claude-code" => Some("claude"),
@@ -424,6 +432,132 @@ pub fn launch_runtime(
         model_ref,
         continuation_prompt,
     )
+}
+
+fn visual_review_prompt(instruction: &str, criteria: &[String]) -> String {
+    let criteria_text = criteria
+        .iter()
+        .map(|item| format!("- {}", item))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "{}\n\nUse only the single attached screenshot as visual evidence. Call the existing local qwen-mm-plugins-core read_image capability for that screenshot. Do not inspect the repository, source files, unrelated windows or other project context.\n\nStructured criteria:\n{}\n\nReturn exactly PASS, or FAIL followed by at most five numbered concrete issues. Do not add commentary before or after the required result.",
+        instruction, criteria_text
+    )
+}
+
+fn discover_visual_window(target: Option<&str>) -> Result<(String, String, String), String> {
+    let script = r#"
+on run argv
+    set targetName to item 1 of argv
+    tell application "System Events"
+        if targetName is "" then
+            set targetProcess to first application process whose frontmost is true
+        else
+            set targetProcess to first application process whose name is targetName
+        end if
+        set targetWindow to front window of targetProcess
+        set windowNumber to value of attribute "AXWindowNumber" of targetWindow
+        return (name of targetProcess) & tab & (name of targetWindow) & tab & (windowNumber as text)
+    end tell
+end run
+"#;
+    let output = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .arg("--")
+        .arg(target.unwrap_or_default())
+        .output()
+        .map_err(|_| "The relevant visual window could not be identified.".to_string())?;
+    if !output.status.success() {
+        return Err("The relevant visual window could not be identified or is not permissioned.".into());
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let mut parts = value.split('\t');
+    let application = parts.next().unwrap_or_default().trim();
+    let title = parts.next().unwrap_or_default().trim();
+    let window_id = parts.next().unwrap_or_default().trim();
+    if application.is_empty()
+        || title.is_empty()
+        || window_id.is_empty()
+        || !window_id.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return Err("The relevant visual window could not be identified.".into());
+    }
+    Ok((application.into(), title.into(), window_id.into()))
+}
+
+/// Captures one relevant macOS window and routes it through the existing
+/// OpenCode Qwen-MM Core capability. The screenshot is removed before return.
+#[tauri::command]
+pub fn run_visual_review(
+    app: tauri::AppHandle,
+    project_id: String,
+    target: Option<String>,
+    instruction: String,
+    criteria: Vec<String>,
+) -> Result<VisualReviewResult, String> {
+    let project_root = crate::commands::fs::resolve_project_root(&app, &project_id)?;
+    if instruction.trim().is_empty() || instruction.len() > 10_000 {
+        return Err("Visual review instruction is invalid.".into());
+    }
+    if criteria.is_empty() || criteria.len() > 20 || criteria.iter().any(|item| item.is_empty() || item.len() > 500) {
+        return Err("Visual review criteria are invalid.".into());
+    }
+    if target.as_ref().is_some_and(|value| value.len() > 200) {
+        return Err("Visual review target is invalid.".into());
+    }
+
+    let (application, title, window_id) = discover_visual_window(target.as_deref())?;
+    let visual_dir = env::temp_dir().join("promptforge-visual");
+    std::fs::create_dir_all(&visual_dir)
+        .map_err(|_| "The visual evidence directory could not be created.".to_string())?;
+    let screenshot_path = visual_dir.join(format!("evidence-{}.png", std::process::id()));
+    let capture = Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-o", &format!("-l{}", window_id)])
+        .arg(&screenshot_path)
+        .output()
+        .map_err(|_| "The relevant visual surface could not be captured.".to_string());
+    let result = capture.and_then(|output| {
+        if !output.status.success() || !screenshot_path.is_file() {
+            return Err("The relevant visual surface could not be captured.".into());
+        }
+        let executable = resolve_runtime_executable(
+            "opencode",
+            env::var_os("PATH").as_deref(),
+            env::var_os("HOME").as_deref().map(Path::new),
+        )
+        .ok_or_else(|| "OpenCode visual review is unavailable.".to_string())?;
+        let prompt = visual_review_prompt(&instruction, &criteria);
+        let mut command = Command::new(executable);
+        command
+            .current_dir(&visual_dir)
+            .args(["run", "--format", "default", "--file"])
+            .arg(&screenshot_path)
+            .args(["--prompt", &prompt]);
+        if project_root.join("opencode.json").is_file() {
+            command.env("OPENCODE_CONFIG", project_root.join("opencode.json"));
+        } else if project_root.join("opencode.jsonc").is_file() {
+            command.env("OPENCODE_CONFIG", project_root.join("opencode.jsonc"));
+        }
+        let review = command
+            .output()
+            .map_err(|_| "OpenCode visual review is unavailable.".to_string())?;
+        if !review.status.success() {
+            return Err("OpenCode visual review is unavailable.".into());
+        }
+        let output = String::from_utf8_lossy(&review.stdout).trim().to_string();
+        if output.is_empty() || output.len() > 32_000 {
+            return Err("OpenCode visual review returned no usable structured result.".into());
+        }
+        Ok(VisualReviewResult {
+            output,
+            target: format!("{} — {}", application, title),
+            screenshot_captured: true,
+        })
+    });
+    let _ = std::fs::remove_file(&screenshot_path);
+    result
 }
 
 fn launch_runtime_at_root(

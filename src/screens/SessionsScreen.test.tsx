@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   selectOpenCodeModel: vi.fn(),
   switchSessionRuntime: vi.fn(),
   updateSessionInstruction: vi.fn(),
+  verifyExecutionSession: vi.fn(),
   inspectProjectGuidance: vi.fn(),
   listProjectContextDocuments: vi.fn(),
   removeProjectContextDocument: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   detectRuntime: vi.fn(),
   openVscode: vi.fn(),
   publishVscodeSessionView: vi.fn(),
+  getVscodeBridgeStatus: vi.fn(),
 }));
 
 vi.mock('../sessions/executionSessionService', () => mocks);
@@ -38,6 +40,7 @@ vi.mock('../services/opencodeModels', () => ({ getOpenCodeModelDiscovery: mocks.
 vi.mock('../services/projectsService', () => ({ getProject: mocks.getProject }));
 vi.mock('../services/runtimeService', () => ({ detectRuntime: mocks.detectRuntime }));
 vi.mock('../services/vscodeIntegration', () => ({
+  getVscodeBridgeStatus: mocks.getVscodeBridgeStatus,
   openVscode: mocks.openVscode,
   publishVscodeSessionView: mocks.publishVscodeSessionView,
 }));
@@ -90,6 +93,7 @@ beforeEach(() => {
   mocks.projectContextPathInputError.mockImplementation((raw: string) => raw.includes('..') ? 'Context document path cannot contain parent traversal (..).' : raw.startsWith('/') ? 'Context document path must be relative.' : null);
   mocks.detectRuntime.mockResolvedValue({ installed: false });
   mocks.publishVscodeSessionView.mockResolvedValue(undefined);
+  mocks.getVscodeBridgeStatus.mockResolvedValue({ available: false, message: 'unavailable' });
   mocks.openVscode.mockResolvedValue({ application: 'Visual Studio Code', projectRoot: '/Users/utku/projects/offerpath' });
 });
 
@@ -156,5 +160,30 @@ describe('Sessions persistence controls', () => {
 
     await waitFor(() => expect(screen.getAllByRole('alert').some((alert) => alert.textContent?.includes('SQLite checkpoint write failed.'))).toBe(true));
     expect((textarea as HTMLTextAreaElement).value).toBe('Keep this if persistence fails.');
+  });
+
+  it('routes completion through verification before finishing the session', async () => {
+    mocks.verifyExecutionSession.mockResolvedValue({
+      taskId: 'TASK-OFFERPATH-1',
+      visualReview: {
+        applicable: false,
+        evidence: null,
+        target: null,
+        screenshotCount: 0,
+        reviewCount: 0,
+        correctivePasses: 0,
+        correctiveInstruction: null,
+      },
+      outcome: { status: 'READY', unresolvedCritical: [], pendingHumanReview: [], blockers: [] },
+    });
+    mocks.finishExecutionSession.mockResolvedValue(session);
+    renderSessions();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify & complete' }));
+
+    await waitFor(() => {
+      expect(mocks.verifyExecutionSession).toHaveBeenCalledWith('project-offerpath', 'session-offerpath');
+      expect(mocks.finishExecutionSession).toHaveBeenCalledWith('project-offerpath', 'session-offerpath', 'completed');
+    });
   });
 });

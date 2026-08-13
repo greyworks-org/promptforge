@@ -17,6 +17,11 @@ interface ReadModelEndpoint {
   token: string;
 }
 
+export interface VscodeBridgeStatus {
+  available: boolean;
+  message: string | null;
+}
+
 export interface VscodeConnection {
   endpoint: string;
   token: string;
@@ -56,6 +61,10 @@ export async function getVscodeConnection(projectId: string, sessionId: string):
     projectId,
     sessionId,
   };
+}
+
+export async function getVscodeBridgeStatus(): Promise<VscodeBridgeStatus> {
+  return invokeIpc<VscodeBridgeStatus>('vscode_bridge_status');
 }
 
 export interface VscodeLaunchResult {

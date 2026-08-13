@@ -12,6 +12,8 @@ import {
   selectOpenCodeModel,
   switchSessionRuntime,
   updateSessionInstruction,
+  verifyExecutionSession,
+  type ExecutionVerificationResult,
 } from '../sessions/executionSessionService';
 import type { ExecutionSession, SessionEvent, SessionRuntime } from '../sessions/types';
 import { inspectProjectGuidance, type GuidanceEntry } from '../services/projectGuidance';
@@ -25,6 +27,7 @@ import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../servi
 import { getProject } from '../services/projectsService';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
+  getVscodeBridgeStatus,
   openVscode,
   publishVscodeSessionView,
 } from '../services/vscodeIntegration';
@@ -56,13 +59,18 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const [openCodeModels, setOpenCodeModels] = useState<OpenCodeModelDiscovery | null>(null);
   const [registeredRoot, setRegisteredRoot] = useState<string | null>(null);
   const [vscodeConnection, setVscodeConnection] = useState<string | null>(null);
+  const [vscodeStatus, setVscodeStatus] = useState<'unknown' | 'available' | 'unavailable'>('unknown');
+  const [verification, setVerification] = useState<ExecutionVerificationResult | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const selected = sessions.find((session) => session.id === selectedId) ?? null;
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // Keep the settled session controls mounted while refreshing the selected
+    // session; otherwise a dependency-driven refresh can detach active inputs.
+    if (selectedId === null) setLoading(true);
     setError(null);
     try {
       const project = await getProject(projectId);
@@ -76,6 +84,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       setSelectedId(nextId);
       setGuidance(await inspectProjectGuidance(projectId));
       setContextDocs((await listProjectContextDocuments(projectId)).map((document) => document.relPath));
+      try {
+        const bridgeStatus = await getVscodeBridgeStatus();
+        setVscodeStatus(bridgeStatus.available ? 'available' : 'unavailable');
+      } catch {
+        setVscodeStatus('unavailable');
+      }
       try { setOpenCodeAvailability(await detectRuntime('opencode')); } catch { setOpenCodeAvailability(null); }
       if (nextId) {
         const nextSession = reconciled.find((session) => session.id === nextId);
@@ -95,7 +109,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
         setEvents(nextEvents);
         setPrompt(nextPrompt);
         setNewInstruction(nextSession?.userInstruction ?? '');
-        try { await publishVscodeSessionView(projectId, nextId); } catch { /* panel connection is optional */ }
+        try {
+          await publishVscodeSessionView(projectId, nextId);
+          setVscodeStatus('available');
+        } catch {
+          setVscodeStatus('unavailable');
+        }
       } else {
         setEvents([]);
         setPrompt('');
@@ -145,7 +164,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       setEvents(nextEvents);
       setPrompt(nextPrompt);
       setNewInstruction(nextSession?.userInstruction ?? '');
-      try { await publishVscodeSessionView(projectId, sessionId); } catch { /* panel connection is optional */ }
+      try {
+        await publishVscodeSessionView(projectId, sessionId);
+        setVscodeStatus('available');
+      } catch {
+        setVscodeStatus('unavailable');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Session details could not be loaded.');
     }
@@ -176,10 +200,22 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
   const finish = async (status: 'completed' | 'paused') => {
     if (!selected) return;
     try {
+      if (status === 'completed') {
+        if (verification !== null) {
+          if (verification.outcome.status !== 'READY') return;
+        } else {
+          setVerifying(true);
+          const result = await verifyExecutionSession(projectId, selected.id);
+          setVerification(result);
+          if (result.outcome.status !== 'READY') return;
+        }
+      }
       await finishExecutionSession(projectId, selected.id, status);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Session update failed.');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -378,8 +414,17 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
                 <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
                 <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
-                <button type="button" onClick={() => void finish('completed')} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700">Mark complete</button>
+                <button type="button" onClick={() => void finish('completed')} disabled={verifying} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700 disabled:opacity-50">{verifying ? 'Verifying…' : 'Verify & complete'}</button>
               </div>
+
+              {verification && (
+                <div className={`rounded border p-3 text-xs ${verification.outcome.status === 'READY' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`} role="status">
+                  <p className="font-medium">Completion outcome: {verification.outcome.status}</p>
+                  {verification.visualReview.evidence && <p className="mt-1">Visual review: {verification.visualReview.evidence.status} · {verification.visualReview.evidence.evidence}</p>}
+                  {verification.outcome.unresolvedCritical.length > 0 && <p className="mt-1">Unresolved verification: {verification.outcome.unresolvedCritical.join(' · ')}</p>}
+                  {verification.outcome.pendingHumanReview.length > 0 && <p className="mt-1">Human review: {verification.outcome.pendingHumanReview.join(' · ')}</p>}
+                </div>
+              )}
 
               {(launchFeedback || latestLaunchEvent) && (
                 <p className={`rounded border p-2 text-xs ${launchFeedback?.startsWith('FAILED') || latestLaunchEvent?.kind === 'runtime_failure' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`} role="status">
@@ -392,6 +437,12 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                   <summary className="cursor-pointer text-xs font-medium text-blue-900">VS Code launch result</summary>
                   <p className="mt-2 break-all font-mono text-[10px] text-blue-800">{vscodeConnection}</p>
                 </details>
+              )}
+
+              {vscodeStatus === 'unavailable' && (
+                <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" role="status">
+                  VS Code read-model integration is unavailable. PromptForge core sessions and handoff remain usable.
+                </p>
               )}
 
               <div className="rounded-md border border-sky-100 bg-sky-50/50 p-3">

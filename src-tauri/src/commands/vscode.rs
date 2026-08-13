@@ -39,6 +39,13 @@ pub struct ReadModelEndpoint {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct VscodeBridgeStatus {
+    pub available: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VscodeLaunchResult {
     pub project_root: String,
     pub application: String,
@@ -251,11 +258,46 @@ impl ReadModelBridge {
     }
 }
 
+/// The read-model bridge is an optional presentation/control transport. A
+/// socket permission failure must not prevent the core app from starting.
+pub fn optional_bridge() -> (Option<ReadModelBridge>, Option<String>) {
+    optional_bridge_from(ReadModelBridge::new())
+}
+
+fn optional_bridge_from(result: Result<ReadModelBridge, String>) -> (Option<ReadModelBridge>, Option<String>) {
+    match result {
+        Ok(bridge) => (Some(bridge), None),
+        Err(error) => {
+            eprintln!("VS Code read-model bridge unavailable: {}", error);
+            (None, Some(error))
+        }
+    }
+}
+
+fn bridge<'a>(state: &'a State<'_, crate::AppState>) -> Result<&'a ReadModelBridge, String> {
+    state.vscode_bridge.as_ref().ok_or_else(|| {
+        state
+            .vscode_bridge_error
+            .clone()
+            .unwrap_or_else(|| "The VS Code read-model bridge is unavailable.".into())
+    })
+}
+
 #[tauri::command]
 pub fn vscode_read_model_endpoint(
     state: State<'_, crate::AppState>,
 ) -> Result<ReadModelEndpoint, String> {
-    Ok(state.vscode_bridge.endpoint())
+    Ok(bridge(&state)?.endpoint())
+}
+
+#[tauri::command]
+pub fn vscode_bridge_status(
+    state: State<'_, crate::AppState>,
+) -> VscodeBridgeStatus {
+    VscodeBridgeStatus {
+        available: state.vscode_bridge.is_some(),
+        message: state.vscode_bridge_error.clone(),
+    }
 }
 
 #[tauri::command]
@@ -265,7 +307,7 @@ pub fn vscode_publish_session_view(
     session_id: String,
     view: Value,
 ) -> Result<(), String> {
-    state.vscode_bridge.publish(PublishSessionView {
+    bridge(&state)?.publish(PublishSessionView {
         project_id,
         session_id,
         view,
@@ -279,14 +321,14 @@ pub fn vscode_publish_handoff_view(
     session_id: String,
     view: Value,
 ) -> Result<(), String> {
-    state.vscode_bridge.publish_handoff(PublishHandoffView { project_id, session_id, view })
+    bridge(&state)?.publish_handoff(PublishHandoffView { project_id, session_id, view })
 }
 
 #[tauri::command]
 pub fn vscode_take_session_action(
     state: State<'_, crate::AppState>,
 ) -> Result<Option<SessionAction>, String> {
-    state.vscode_bridge.take_action()
+    bridge(&state)?.take_action()
 }
 
 #[tauri::command]
@@ -296,9 +338,7 @@ pub fn vscode_complete_session_action(
     success: bool,
     message: String,
 ) -> Result<(), String> {
-    state
-        .vscode_bridge
-        .complete_action(action_id, success, message)
+    bridge(&state)?.complete_action(action_id, success, message)
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -579,6 +619,13 @@ mod tests {
             .get("action-1")
             .cloned();
         assert_eq!(result.map(|item| item.status), Some("succeeded".into()));
+    }
+
+    #[test]
+    fn bridge_startup_failure_is_degraded_without_panicking() {
+        let (bridge, error) = optional_bridge_from(Err("Operation not permitted (os error 1)".into()));
+        assert!(bridge.is_none());
+        assert_eq!(error.as_deref(), Some("Operation not permitted (os error 1)"));
     }
 
     fn test_bridge() -> ReadModelBridge {

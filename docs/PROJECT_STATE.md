@@ -15,9 +15,9 @@
 
 ## Progress
 
-- **Current phase:** PromptForge v1 finalization — Slice 3 real verification + visual QA + one corrective pass complete.
-- **Last validated task:** PromptForge v1 Finalization — Slice 3 (2026-08-12) — TaskSpec-derived functional golden-path requirements, VERIFIED/NOT VERIFIED evidence, bounded Qwen-MM visual review requests/parsing, and one targeted corrective-pass contract integrated with Slice 2 outcomes. Gates: focused TypeScript 101/101; typecheck; production build; `git diff --check`.
-- **Current task:** none — Slice 3 is complete; visual evidence remains NEEDS HUMAN REVIEW when the existing OpenCode Qwen-MM capability or rendered target is unavailable.
+- **Current phase:** PromptForge v1 finalization complete — feature frozen.
+- **Last validated task:** PromptForge v1 finalization (2026-08-13) — optional/degraded VS Code bridge, bounded automatic visual review, Verify & complete integration, and direct persisted functional-evidence connection. Gates: focused TypeScript 36/36; Rust 86/86; typecheck; production build; OpenCode capability validation; Tauri macOS bundle; `git diff --check`.
+- **Current task:** none — PromptForge v1 is finalized; unavailable external execution or subjective visual evidence remains an explicit boundary outcome.
 - **Next task:** none recorded — continue only when the next v1 finalization slice is explicitly requested.
 
 ## Decisions (confirmed)
@@ -33,6 +33,7 @@
 - v1 Slice 1 keeps the 1.1.0 TaskSpec version and adds optional `execution_contract` and `quality_profile` fields so existing stored TaskSpecs remain valid. UI/copy anti-slop defaults are bounded and omitted for backend-only work; project guidance and explicit preferences take precedence.
 - Slice 2 derives scope-lock and completion-control behavior from existing TaskSpec fields. READY / NEEDS HUMAN REVIEW / BLOCKED remain deterministic final-report outcomes; session persistence statuses and TaskSpec schemas are unchanged. Older sessions fall back to their persisted canonical state when a TaskSpec cannot be reloaded.
 - Slice 3 derives runnable flow checks in canonical order, accepts only direct VERIFIED evidence, and keeps NOT VERIFIED distinct. Visual review is limited to rendered UI surfaces with `quality_profile.visual_review=true`; it targets the existing local OpenCode Qwen-MM Core `read_image` capability without adding a PromptForge transport. One corrective instruction may be built from failed evidence; no automatic retry loop exists.
+- Completion verification now converts only direct requirement-matching entries from persisted session progress into functional evidence; visual evidence cannot satisfy a functional gate.
 - OpenCode is a first-class runtime path, but OpenCode's own session store is external evidence only; PromptForge SQLite `ExecutionSession`, TaskSpec, project memory, transcript/checkpoints and Git state remain canonical. Runtime/model routing is opaque metadata (`providerId`, `modelId`, `modelRef`, `variant`) so new providers do not require hardcoded model registries.
 - VS Code is a visual client with confirmation-gated session controls. The extension consumes `getExecutionSessionView` and queues only fixed Start/Resume/Checkpoint actions through a per-launch-tokenized loopback bridge; PromptForge owns execution, session state, SQLite, runtime launch, and provider boundaries.
 - OpenCode shared visual capability: project `opencode.json` registers the upstream local-only Qwen-MM Core MCP server through native OpenCode configuration, and `.opencode/skills/qwen-mm-plugins-core/SKILL.md` makes the capability discoverable without forced visual context. PromptForge does not transport image bytes, store a Qwen key, add a provider adapter, or couple compiler/session state to Qwen-MM.
@@ -53,7 +54,8 @@
 - Full parallel TypeScript suite has an unrelated SessionsScreen timing failure (2/4 only when run with the entire suite); `src/screens/SessionsScreen.test.tsx` passes 4/4 in isolation and Sessions code was not changed by Slice 1.
 - U2–U4 assumptions open: English UI, pnpm, macOS-first MVP.
 - R3/R5/R11 unchanged (FTS5, fs scopes, git binary) — later phases.
-- Slice 3 visual automation boundary: PromptForge does not capture screenshots or invoke OpenCode MCP directly. Missing visual target/capability evidence is intentionally surfaced as NEEDS HUMAN REVIEW; the existing Qwen-MM capability configuration remains unchanged.
+- Slice 3 visual automation boundary: PromptForge captures one relevant rendered window and routes it through the existing OpenCode Qwen-MM Core capability. Missing visual target/capability evidence is intentionally surfaced as NEEDS HUMAN REVIEW; the existing Qwen-MM capability configuration remains unchanged.
+- Finalization environment limitation: the persisted Offerpath acceptance TaskSpec was present, but the installed OpenCode runtime could not complete execution in this host (local OpenCode DB was read-only in the sandbox, then the isolated run hung). The rebuilt macOS app bundle also built successfully, but LaunchServices/direct GUI smoke was unavailable in this host.
 - Dev-environment keychain note (resolved 2026-08-06, kept for reference): each unsigned `tauri dev` rebuild changes the binary's code identity, so a keychain item created by an earlier build can fail re-authorization ("Keychain state unavailable." in Settings) until the key is re-saved from the current build. The fixture key was re-saved through the UI during manual verification. Optional remaining manual pass: replace/delete a key through the UI.
 - Phase 2 startup blocker (resolved 2026-08-06): tauri-plugin-sql's `sql:default` set grants only close/load/select — every migration `execute` was ACL-rejected at runtime, leaving an empty DB and "The project library could not be opened." Fix: explicit `sql:allow-execute` in `src-tauri/capabilities/default.json`; regression test in `tests/capabilities/sqlCapability.test.ts` guards the effective permission set. Unit tests could not catch this (better-sqlite3 bypasses the Tauri ACL); live app verification is the authoritative check for DB init.
 - Phase 3 runtime smoke complete. Remaining environment-dependent checks deferred to pre-release verification (not implementation blockers): native folder picker + wizard UI flow (requires macOS GUI), provider API draft quality (requires configured key). Both are covered at unit level (mock provider, IPC mocks, component tests).
@@ -121,11 +123,12 @@
 
 ## Git checkpoint
 
-- **Latest commit:** pending focused Slice 3 commit.
-- **Uncommitted changes:** Slice 3 implementation and state update pending commit.
+- **Latest commit:** pending `feat: finalize PromptForge v1` commit.
+- **Uncommitted changes:** finalization implementation, focused regression coverage, and this state update pending commit.
 
 ## Recent history
 
+- 2026-08-13 · PromptForge v1 finalization — optional VS Code degradation, bounded visual review wiring, Verify & complete, functional evidence connection, final validation, and feature freeze.
 - 2026-08-12 · PromptForge v1 Finalization Slice 3 — functional golden-path evidence, bounded Qwen-MM visual QA contract, and one corrective pass.
 - 2026-08-12 · PromptForge v1 Finalization Slice 2 — scope lock, deterministic completion outcomes, and provider-neutral handoff/session continuation preservation.
 - 2026-08-12 · PromptForge v1 finalization Slice 1 — compact execution contract compiler, UI/copy quality profile, project-memory/guidance inputs, and provider-neutral runtime/handoff preservation.

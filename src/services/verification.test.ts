@@ -8,6 +8,7 @@ import {
   isVisualReviewApplicable,
   parseVisualReviewOutput,
 } from './verification';
+import { runAutomaticVisualReview } from './visualReview';
 
 function makeTask(overrides: Partial<TaskSpec> = {}): TaskSpec {
   return {
@@ -104,6 +105,83 @@ describe('Slice 3 real verification and bounded corrective pass', () => {
     const task = makeTask({ quality_profile: { visual_review: false } });
     expect(isVisualReviewApplicable(task)).toBe(false);
     expect(buildVisualReviewRequest(task, '/tmp/feature.png')).toBeNull();
+  });
+
+  it('does not capture or call Qwen-MM for visual_review=false', async () => {
+    const invokeReview = async () => ({ output: 'PASS', target: 'unused', screenshotCaptured: true });
+    const result = await runAutomaticVisualReview(makeTask({ quality_profile: { visual_review: false } }), {
+      projectId: 'project-slice-3',
+      invokeReview,
+    });
+    expect(result.applicable).toBe(false);
+    expect(result.screenshotCount).toBe(0);
+    expect(result.reviewCount).toBe(0);
+  });
+
+  it('passes compact criteria through the existing structured Qwen-MM review contract', async () => {
+    const calls: string[] = [];
+    const result = await runAutomaticVisualReview(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      projectId: 'project-slice-3',
+      target: 'Offerpath',
+      invokeReview: async (request) => {
+        calls.push(`${request.capability}:${request.tool}:${request.criteria.join('|')}`);
+        return { output: 'PASS', target: 'Offerpath — Dashboard', screenshotCaptured: true };
+      },
+    });
+    expect(result.evidence?.status).toBe('PASS');
+    expect(result.screenshotCount).toBe(1);
+    expect(calls[0]).toContain('qwen-mm-plugins-core:read_image:Hierarchy');
+  });
+
+  it('maps missing screenshot or Qwen-MM capability to human review', async () => {
+    const result = await runAutomaticVisualReview(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      projectId: 'project-slice-3',
+      invokeReview: async () => { throw new Error('capability unavailable'); },
+    });
+    expect(result.evidence?.status).toBe('NOT VERIFIED');
+    expect(resolveCompletionOutcome(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      ...objectiveEvidence(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } })),
+      visualReview: result.evidence!,
+      functionalFlow: flowEvidence(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } })),
+    }).status).toBe('NEEDS HUMAN REVIEW');
+  });
+
+  it('performs one corrective pass and one re-review after a visual FAIL', async () => {
+    const outputs = ['FAIL\n1. The filter label is duplicated.', 'PASS'];
+    let calls = 0;
+    let correctiveInstruction = '';
+    const result = await runAutomaticVisualReview(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      projectId: 'project-slice-3',
+      invokeReview: async () => ({ output: outputs[calls++], target: 'Offerpath — Dashboard', screenshotCaptured: true }),
+      applyCorrectivePass: async (instruction) => { correctiveInstruction = instruction; },
+    });
+    expect(result.evidence?.status).toBe('PASS');
+    expect(result.reviewCount).toBe(2);
+    expect(result.screenshotCount).toBe(2);
+    expect(result.correctivePasses).toBe(1);
+    expect(correctiveInstruction).toContain('ONE TARGETED CORRECTIVE PASS');
+    expect(calls).toBe(2);
+  });
+
+  it('cannot start a second automatic corrective pass', async () => {
+    const outputs = ['FAIL\n1. First issue.', 'FAIL\n1. Still failing.'];
+    let calls = 0;
+    let corrections = 0;
+    const result = await runAutomaticVisualReview(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      projectId: 'project-slice-3',
+      invokeReview: async () => ({ output: outputs[calls++], target: 'Offerpath — Dashboard', screenshotCaptured: true }),
+      applyCorrectivePass: async () => { corrections += 1; },
+    });
+    expect(result.evidence?.status).toBe('FAIL');
+    expect(result.reviewCount).toBe(2);
+    expect(result.correctivePasses).toBe(1);
+    expect(corrections).toBe(1);
+    expect(calls).toBe(2);
+    expect(resolveCompletionOutcome(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } }), {
+      ...objectiveEvidence(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } })),
+      functionalFlow: flowEvidence(makeTask({ task_type: 'ui', quality_profile: { visual_review: true } })),
+      visualReview: result.evidence!,
+    }).status).toBe('BLOCKED');
   });
 
   it('requires visual evidence for a rendered UI task when visual_review is true', () => {

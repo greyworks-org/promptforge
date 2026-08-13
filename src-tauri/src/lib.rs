@@ -13,7 +13,8 @@ pub struct AppState {
     /// Populated on first read, cleared on app exit.
     /// Never persisted — Keychain remains the source of truth.
     pub key_cache: Mutex<HashMap<String, String>>,
-    pub vscode_bridge: commands::vscode::ReadModelBridge,
+    pub vscode_bridge: Option<commands::vscode::ReadModelBridge>,
+    pub vscode_bridge_error: Option<String>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,11 +22,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState {
-            secrets: Arc::new(KeyringStore),
-            key_cache: Mutex::new(HashMap::new()),
-            vscode_bridge: commands::vscode::ReadModelBridge::new()
-                .expect("could not start the VS Code read-model bridge"),
+        .manage({
+            let (vscode_bridge, vscode_bridge_error) = commands::vscode::optional_bridge();
+            AppState {
+                secrets: Arc::new(KeyringStore),
+                key_cache: Mutex::new(HashMap::new()),
+                vscode_bridge,
+                vscode_bridge_error,
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::keychain::keychain_set,
@@ -46,7 +50,9 @@ pub fn run() {
             commands::shell::runtime_status,
             commands::shell::opencode_models,
             commands::shell::launch_runtime,
+            commands::shell::run_visual_review,
             commands::vscode::open_vscode,
+            commands::vscode::vscode_bridge_status,
             commands::vscode::vscode_read_model_endpoint,
             commands::vscode::vscode_publish_session_view,
             commands::vscode::vscode_publish_handoff_view,
