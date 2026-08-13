@@ -49,7 +49,7 @@ export function ProjectList(props: ProjectListProps) {
         return (
           <li
             key={project.id}
-            className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm"
+            className={`border-b border-zinc-200 py-4 first:border-t ${isActive ? 'bg-zinc-50/60' : ''}`}
             data-project-id={project.id}
           >
             {isConfirmingRemove ? (

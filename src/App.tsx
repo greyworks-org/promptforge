@@ -60,7 +60,6 @@ export default function App() {
               ))}
             </nav>
           </div>
-          <span className="text-xs text-zinc-500">MVP · All phases</span>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-6 py-8">

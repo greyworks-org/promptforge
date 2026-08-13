@@ -11,6 +11,7 @@ import { resolveExecutionProfile } from '../services/providerRegistry';
 import { DEFAULT_MODEL_ID, MODEL_CATALOG, resolveCatalogModel, runtimeModelRef } from '../models/catalog';
 import { ensureExecutionSession } from '../sessions/executionSessionService';
 import { getMemory } from '../services/memoryService';
+import { getCompilationForProject } from '../services/historyService';
 import { inspectProjectGuidance } from '../services/projectGuidance';
 import { readTextFile } from '../services/projectFs';
 
@@ -86,6 +87,17 @@ export function CompilerScreen({
     let cancelled = false;
     Promise.all([getMemory(activeProjectId), inspectProjectGuidance(activeProjectId)])
       .then(async ([memory, entries]) => {
+        if (memory.currentTaskId) {
+          try {
+            const compilation = await getCompilationForProject(activeProjectId, memory.currentTaskId);
+            if (compilation?.taskspecJson) {
+              const savedRuntime = (JSON.parse(compilation.taskspecJson) as { agent_runtime?: string }).agent_runtime;
+              if (savedRuntime === 'claude-code' || savedRuntime === 'qwen-code' || savedRuntime === 'codex') setTargetRuntime(savedRuntime);
+            }
+          } catch {
+            // A missing historical task should not block a new compilation.
+          }
+        }
         const rules = entries.filter((entry) => entry.kind === 'rule').slice(0, 8);
         const loaded = await Promise.all(rules.map(async (entry) => {
           try {
@@ -199,7 +211,7 @@ export function CompilerScreen({
             task: result.taskSpec,
             compilation,
             binding: {
-              providerId: selectedProfile.providerId ?? null,
+              providerId: selectedProfile.providerId ?? selected.value.model.providerId,
               modelId: selectedProfile.modelId,
               modelRef: runtimeModelRef(selectedProfile),
               variant: null,
@@ -306,7 +318,7 @@ export function CompilerScreen({
         </label>
 
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Compiler model</span>
+          <span className="font-medium">Model</span>
           <select
             className={selectClass}
             value={selectedModelId}
@@ -315,7 +327,7 @@ export function CompilerScreen({
           >
             {MODEL_CATALOG.map((model) => <option key={model.id} value={model.id}>{model.displayName}</option>)}
           </select>
-          <span className="text-xs text-zinc-400">Explicit selection; no automatic routing.</span>
+          <span className="text-xs text-zinc-400">Used for this task compilation.</span>
         </label>
       </div>
 

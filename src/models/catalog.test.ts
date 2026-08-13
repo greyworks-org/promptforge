@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultProfile } from '../schemas/providerProfile';
-import { DEFAULT_MODEL_ID, MODEL_CATALOG, resolveCatalogModel, runtimeModelRef } from './catalog';
+import { DEFAULT_MODEL_ID, MODEL_CATALOG, formatBindingModelLabel, inferKnownProviderId, resolveCatalogModel, runtimeModelRef } from './catalog';
 
 describe('PromptForge v1 model catalog', () => {
   it('contains exactly the three requested display choices', () => {
@@ -34,5 +34,12 @@ describe('PromptForge v1 model catalog', () => {
   it('keeps legacy explicitly labelled profiles usable', () => {
     const legacy = { ...defaultProfile(), label: 'DeepSeek Provider', baseUrl: 'https://deepseek.example/v1', modelId: 'legacy-id' };
     expect(resolveCatalogModel('deepseek-v4-flash', [legacy])).toMatchObject({ ok: true });
+  });
+
+  it('identifies a known legacy Luna profile without changing its configured endpoint', () => {
+    const legacy = { ...defaultProfile(), label: 'OpenAI GPT 5.6 Luna', baseUrl: 'https://api.openai.com/v1', modelId: 'gpt-5.6-luna' };
+    expect(inferKnownProviderId(legacy)).toBe('openai');
+    expect(formatBindingModelLabel('anthropic', 'claude-sonnet-4-5')).toBe('Claude Sonnet 4.5 · Legacy/current');
+    expect(formatBindingModelLabel('openai', 'gpt-5.6-luna', [legacy])).toBe('Luna 5.6 High');
   });
 });

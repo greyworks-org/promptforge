@@ -190,7 +190,7 @@ export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onSessions
     'w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none';
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Projects</h2>
@@ -236,7 +236,7 @@ export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onSessions
       )}
 
       {adding && (
-        <div className="mt-5 grid gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-4">
+        <div className="mt-5 grid gap-3 border-y border-zinc-200 bg-zinc-50/60 py-4">
           <div className="grid gap-1 text-sm">
             <label className="grid gap-1" htmlFor="project-folder-path">
               <span className="font-medium">Project folder</span>
@@ -312,7 +312,7 @@ export function ProjectsScreen({ deps, onStartOnboarding, onContinue, onSessions
         )}
 
         {loadState === 'ready' && projects.length === 0 && (
-          <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center">
+          <div className="border-y border-dashed border-zinc-300 bg-zinc-50/60 p-8 text-center">
             <p className="text-sm font-medium text-zinc-700">No projects yet</p>
             <p className="mt-1 text-sm text-zinc-500">
               Register a local project folder to start compiling prompts for it.

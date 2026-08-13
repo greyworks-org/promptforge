@@ -25,7 +25,7 @@ import {
 } from '../services/projectContextService';
 import { getOpenCodeModelDiscovery, type OpenCodeModelDiscovery } from '../services/opencodeModels';
 import { listProfiles } from '../services/settingsService';
-import { MODEL_CATALOG, resolveCatalogModel, runtimeModelRef, catalogLabelForBinding } from '../models/catalog';
+import { MODEL_CATALOG, resolveCatalogModel, runtimeModelRef, catalogModelIdForBinding, formatBindingModelLabel } from '../models/catalog';
 import { getProject } from '../services/projectsService';
 import { detectRuntime, type RuntimeAvailability } from '../services/runtimeService';
 import {
@@ -346,16 +346,19 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
     || registeredRoot === null
     || selected.runtimeCwd !== registeredRoot
   );
-  const activeCatalogLabel = selected === null
+  const activeCatalogModelId = selected === null
     ? null
-    : catalogLabelForBinding(selected.binding.providerId, selected.binding.modelId);
+    : catalogModelIdForBinding(selected.binding.providerId, selected.binding.modelId, providerProfiles);
+  const activeModelLabel = selected === null
+    ? 'No session selected'
+    : formatBindingModelLabel(selected.binding.providerId, selected.binding.modelId, providerProfiles);
 
   return (
     <section className="space-y-5">
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-xl font-semibold">Sessions · {projectName}</h2>
-          <p className="mt-1 text-sm text-zinc-500">Persistent task continuity shared by OpenCode, Claude Code, Codex and Qwen Code.</p>
+          <p className="mt-1 text-sm text-zinc-500">Persistent task continuity across execution runtimes.</p>
           {openCodeAvailability && <p className={`mt-1 text-xs ${openCodeAvailability.installed ? 'text-emerald-700' : 'text-amber-700'}`}>OpenCode: {openCodeAvailability.installed ? `available${openCodeAvailability.version ? ` · ${openCodeAvailability.version}` : ''}` : 'not detected'}</p>}
         </div>
         <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-700">Back</button>
@@ -365,7 +368,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
       {loading && <p className="text-sm text-zinc-500">Reconciling local sessions with the repository…</p>}
 
       {!loading && sessions.length === 0 && (
-        <div className="rounded-md border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+        <div className="border-y border-zinc-200 py-4 text-sm text-zinc-600">
           No execution session exists yet. Compile a TaskSpec, then start it from the handoff flow.
         </div>
       )}
@@ -378,7 +381,7 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 key={session.id}
                 type="button"
                 onClick={() => void select(session.id)}
-                className={`w-full rounded-md border p-3 text-left text-xs ${selected?.id === session.id ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 bg-white'}`}
+                className={`w-full border-b px-2 py-3 text-left text-xs first:border-t ${selected?.id === session.id ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200'}`}
               >
                 <span className="block font-medium">{session.runtime === 'opencode' ? 'OpenCode' : session.runtime}</span>
                 <span className="mt-1 block text-zinc-500">{session.status}</span>
@@ -388,40 +391,54 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
           </div>
 
           {selected && (
-            <div className="space-y-4 rounded-md border border-zinc-200 bg-white p-4">
+            <div className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold">{selected.state.objective || 'Recovered task session'}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{selected.status} · model {selected.binding.modelId ?? 'runtime default'} · started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Registered project root: <code className="font-mono text-zinc-700">{registeredRoot ?? 'not resolved'}</code></p>
-                  <p className="mt-1 text-xs text-zinc-500">Persisted runtime cwd: <code className="font-mono text-zinc-700">{selected.runtimeCwd ?? 'not bound'}</code></p>
+                  <p className="mt-1 text-xs text-zinc-500">Status: {selected.status} · Execution runtime: {selected.runtime === 'opencode' ? 'OpenCode' : selected.runtime === 'claude-code' ? 'Claude Code' : selected.runtime === 'qwen-code' ? 'Qwen Code' : 'Codex'} · Started {selected.startedAt.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="mt-1 text-sm text-zinc-700">Model: {activeModelLabel}</p>
                 </div>
                 <div className="flex gap-1">
                   {runtimes.map((runtime) => (
                     <button key={runtime} type="button" onClick={() => void switchRuntime(runtime)} className={`rounded border px-2 py-1 text-[11px] ${selected.runtime === runtime ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300'}`}>
-                      {runtime === 'opencode' ? 'OpenCode' : runtime === 'claude-code' ? 'Claude' : runtime === 'qwen-code' ? 'Qwen' : 'Codex'}
+                      {runtime === 'opencode' ? 'OpenCode' : runtime === 'claude-code' ? 'Claude Code' : runtime === 'qwen-code' ? 'Qwen Code' : 'Codex'}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
-                <label htmlFor="session-model" className="text-xs font-medium text-indigo-950">Session model</label>
+              <div className="border-y border-zinc-200 py-3">
+                <label htmlFor="session-model" className="text-xs font-medium text-zinc-800">Model</label>
                 <select
                   id="session-model"
-                  value={activeCatalogLabel ? MODEL_CATALOG.find((model) => model.displayName === activeCatalogLabel)?.id ?? '' : ''}
+                  value={activeCatalogModelId ?? 'legacy-current'}
                   onChange={(event) => void chooseSessionModel(event.target.value)}
-                  className="mt-1 block w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs"
+                  className="mt-1 block w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-xs"
                 >
-                  <option value="">Choose a model…</option>
+                  <option value="legacy-current">{activeModelLabel}</option>
                   {MODEL_CATALOG.map((model) => {
                     const configured = resolveCatalogModel(model.id, providerProfiles).ok;
                     return <option key={model.id} value={model.id}>{model.displayName}{configured ? '' : ' · configuration required'}</option>;
                   })}
                 </select>
-                <p className="mt-1 text-[11px] text-indigo-800">Explicit model switching preserves this session, TaskSpec, context and checkpoint.</p>
+                <p className="mt-1 text-[11px] text-zinc-500">Changing the model keeps this session, TaskSpec, context and checkpoint.</p>
               </div>
 
+              <div className="grid gap-2 border-b border-zinc-200 pb-4">
+                <label htmlFor="new-instruction" className="text-xs font-medium">Next instruction</label>
+                <textarea id="new-instruction" value={newInstruction} onChange={(event) => setNewInstruction(event.target.value)} rows={3} className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-xs" placeholder="What should the execution runtime do next?" />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Resume</button>
+                <button type="button" onClick={() => void finish('completed')} disabled={verifying} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700 disabled:opacity-50">{verifying ? 'Verifying…' : 'Verify & complete'}</button>
+                <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Open in VS Code</button>
+                <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
+              </div>
+
+              <details>
+                <summary className="cursor-pointer text-sm font-medium">Advanced</summary>
+                <div className="mt-4 space-y-4">
               {selected.runtime === 'opencode' && (
                 <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
                   <p className="text-xs font-medium text-indigo-950">OpenCode availability</p>
@@ -430,20 +447,16 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 </div>
               )}
 
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void copy()} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Copy continuation</button>
+                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs disabled:opacity-50">Start in OpenCode</button>
+              </div>
+
               {selectedBindingMismatch && (
                 <p className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700" role="alert">
                   Session/project mismatch. Start and Resume are blocked; PromptForge will not rebind this session automatically.
                 </p>
               )}
-
-              <div className="flex gap-2">
-                <button type="button" onClick={() => void copy()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">Copy continuation</button>
-                <button type="button" onClick={() => void connectVscode()} className="rounded-md border border-blue-300 px-3 py-1.5 text-xs text-blue-700">Open VS Code</button>
-                <button type="button" onClick={() => void launchOpenCode('start')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Start task in OpenCode</button>
-                <button type="button" onClick={() => void launchOpenCode('resume')} disabled={!openCodeAvailability?.installed || selectedBindingMismatch} className="rounded-md border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">Resume task in OpenCode</button>
-                <button type="button" onClick={() => void finish('paused')} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs">Pause</button>
-                <button type="button" onClick={() => void finish('completed')} disabled={verifying} className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700 disabled:opacity-50">{verifying ? 'Verifying…' : 'Verify & complete'}</button>
-              </div>
 
               {verification && (
                 <div className={`rounded border p-3 text-xs ${verification.outcome.status === 'READY' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`} role="status">
@@ -487,12 +500,6 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 </div>
               </div>
 
-              <div className="grid gap-2 rounded-md border border-amber-100 bg-amber-50/50 p-3">
-                <label htmlFor="new-instruction" className="text-xs font-medium text-amber-950">New instruction</label>
-                <textarea id="new-instruction" value={newInstruction} onChange={(event) => setNewInstruction(event.target.value)} rows={4} className="rounded border border-amber-200 bg-white px-2 py-1.5 text-xs" placeholder="What should OpenCode do next?" />
-                <p className="text-[11px] text-amber-800">This is the next task input. It stays separate from checkpoint knowledge and is preserved if launch fails.</p>
-              </div>
-
               <div className="grid gap-2">
                 <label htmlFor="session-note" className="text-xs font-medium">Add local checkpoint knowledge</label>
                 <textarea id="session-note" value={note} onChange={(event) => { setNote(event.target.value); setCheckpointError(null); }} rows={2} className="rounded border border-zinc-300 px-2 py-1.5 text-xs" placeholder="What did the runtime observe or validate?" />
@@ -500,15 +507,17 @@ export function SessionsScreen({ projectId, projectName, onClose }: SessionsScre
                 <button type="button" onClick={() => void saveNote()} disabled={note.trim() === '' || savingNote} className="w-fit rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50">{savingNote ? 'Saving checkpoint…' : 'Save checkpoint'}</button>
               </div>
 
-              <details open className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                <summary className="cursor-pointer text-xs font-medium">Canonical continuation prompt</summary>
+              <div className="border-t border-zinc-200 pt-3">
+                <p className="text-xs font-medium">Canonical continuation prompt</p>
                 <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap text-[11px] text-zinc-700">{prompt}</pre>
-              </details>
+              </div>
 
-              <details className="rounded-md border border-zinc-200 p-3">
-                <summary className="cursor-pointer text-xs font-medium">Session knowledge ({events.length} events)</summary>
+              <div className="border-t border-zinc-200 pt-3">
+                <p className="text-xs font-medium">Session knowledge ({events.length} events)</p>
                 <div className="mt-2 space-y-2 text-xs text-zinc-600">
                   {events.map((event) => <p key={event.id}><span className="font-medium">{event.kind}</span>: {event.content}</p>)}
+                </div>
+              </div>
                 </div>
               </details>
             </div>

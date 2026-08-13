@@ -104,6 +104,16 @@ function renderSessions() {
 }
 
 describe('Sessions persistence controls', () => {
+  it('displays the actual legacy runtime binding instead of a blank model choice', async () => {
+    mocks.reconcileProjectSessions.mockResolvedValue([{
+      ...session,
+      binding: { ...session.binding, providerId: 'anthropic', modelId: 'claude-sonnet-4-5', modelRef: 'anthropic/claude-sonnet-4-5' },
+    }]);
+    renderSessions();
+    expect(await screen.findByText('Model: Claude Sonnet 4.5 · Legacy/current')).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Claude Sonnet 4.5 · Legacy/current' })).toBeTruthy();
+  });
+
   it('adds a valid document through the UI and clears the input after persistence', async () => {
     renderSessions();
     const input = await screen.findByLabelText('Project context document path');

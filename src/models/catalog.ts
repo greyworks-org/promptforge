@@ -33,6 +33,18 @@ export interface ResolvedCatalogModel {
   profile: ProviderProfile;
 }
 
+/** Infer only identities that are unambiguous from known provider signals. */
+export function inferKnownProviderId(profile: Pick<ProviderProfile, 'providerId' | 'label' | 'baseUrl' | 'modelId'>): string | null {
+  if (profile.providerId === 'openai' || profile.providerId === 'qwen' || profile.providerId === 'deepseek') {
+    return profile.providerId;
+  }
+  const value = `${profile.label} ${profile.baseUrl} ${profile.modelId}`.toLowerCase();
+  if (value.includes('api.openai.com') || value.includes('openai') || value.includes('luna')) return 'openai';
+  if (value.includes('dashscope.aliyuncs.com') || value.includes('qwen')) return 'qwen';
+  if (value.includes('api.deepseek.com') || value.includes('deepseek')) return 'deepseek';
+  return null;
+}
+
 /** Resolve only an explicitly labelled provider profile; never fall back across providers. */
 export function resolveCatalogModel(
   modelId: string,
@@ -55,7 +67,41 @@ export function runtimeModelRef(profile: ProviderProfile): string | null {
   return profile.runtimeModelRef?.trim() || null;
 }
 
-export function catalogLabelForBinding(providerId: string | null, modelId: string | null): string | null {
+export function catalogModelIdForBinding(
+  providerId: string | null,
+  modelId: string | null,
+  profiles: ProviderProfile[] = [],
+): string | null {
   if (providerId === null || modelId === null) return null;
-  return MODEL_CATALOG.find((model) => model.providerId === providerId)?.displayName ?? null;
+  const profile = profiles.find((candidate) => candidate.providerId === providerId && candidate.modelId === modelId);
+  if (profile !== undefined) return MODEL_CATALOG.find((model) => model.providerId === providerId)?.id ?? null;
+  const normalized = modelId.toLowerCase();
+  if (providerId === 'openai' && normalized.includes('luna')) return 'luna-5.6-high';
+  if (providerId === 'qwen' && normalized.includes('qwen')) return 'qwen-3.8-max';
+  if (providerId === 'deepseek' && normalized.includes('flash')) return 'deepseek-v4-flash';
+  return null;
+}
+
+export function catalogLabelForBinding(
+  providerId: string | null,
+  modelId: string | null,
+  profiles: ProviderProfile[] = [],
+): string | null {
+  const catalogId = catalogModelIdForBinding(providerId, modelId, profiles);
+  return catalogId === null ? null : catalogModel(catalogId)?.displayName ?? null;
+}
+
+export function formatBindingModelLabel(
+  providerId: string | null,
+  modelId: string | null,
+  profiles: ProviderProfile[] = [],
+): string {
+  const catalogLabel = catalogLabelForBinding(providerId, modelId, profiles);
+  if (catalogLabel !== null) return catalogLabel;
+  if (modelId === null || modelId.trim() === '') return 'Runtime default';
+  const readable = modelId
+    .replace(/(\d+)-(\d+)/g, '$1.$2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+  return `${readable} · Legacy/current`;
 }

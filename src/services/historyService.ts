@@ -5,6 +5,7 @@ import {
   type CompilationRecord,
   type NewCompilation,
 } from '../db/repos/compilations';
+import { createOutcomesRepository, type OutcomeRecord } from '../db/repos/outcomes';
 import type { QueryRunner } from '../db/runner';
 
 /**
@@ -19,6 +20,10 @@ export function setDbForTests(runner: QueryRunner | null): void { testRunner = r
 
 async function repo(): Promise<CompilationsRepository> {
   return createCompilationsRepository(testRunner ?? (await getAppDb()));
+}
+
+async function outcomes() {
+  return createOutcomesRepository(testRunner ?? (await getAppDb()));
 }
 
 export interface RecordCompileInput {
@@ -79,4 +84,12 @@ export async function listHistory(
   offset = 0,
 ): Promise<CompilationRecord[]> {
   return (await repo()).listByProject(projectId, limit, offset);
+}
+
+export async function getCompilationOutcome(compilationId: string): Promise<OutcomeRecord | null> {
+  return (await outcomes()).getByCompilationId(compilationId);
+}
+
+export async function saveCompilationOutcome(outcome: OutcomeRecord): Promise<void> {
+  await (await outcomes()).upsert(outcome);
 }

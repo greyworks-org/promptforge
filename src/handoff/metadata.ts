@@ -97,7 +97,7 @@ export function renderHandoffMetadata(
     sections.push('');
   } else if (semantic?.status === 'unavailable') {
     sections.push('## Context status');
-    sections.push('Git state current · semantic context unavailable');
+    sections.push('No semantic summary is available for this snapshot. The repository and Git evidence remain authoritative.');
     sections.push('');
   }
 

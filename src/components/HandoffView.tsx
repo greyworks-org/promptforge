@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getMemory } from '../services/memoryService';
 import { getGitSnapshot } from '../services/gitState';
 import { getCompilationForProject } from '../services/historyService';
 import { getProject } from '../services/projectsService';
 import { refreshSemanticContextIfNeeded } from '../services/semanticContext';
-import { assembleSnapshot } from '../handoff/snapshot';
+import { inspectProjectGuidance } from '../services/projectGuidance';
+import { listContextDocs } from '../services/contextService';
+import { assembleSnapshot, type HandoffSnapshot } from '../handoff/snapshot';
 import { classifyProgress } from '../handoff/progress';
 import { renderHandoffClaudeCode } from '../handoff/renderClaudeCode';
 import { renderHandoffQwenCode } from '../handoff/renderQwenCode';
 import { renderHandoffCodex } from '../handoff/renderCodex';
 import type { TaskSpec } from '../schemas/taskspec';
 import type { CompilationRecord } from '../db/repos/compilations';
-import type { HandoffSnapshot } from '../handoff/snapshot';
 import { ensureExecutionSession } from '../sessions/executionSessionService';
+import { replaceLiveGitSnapshot, repositoryFreshnessLabel } from '../services/projectFreshness';
 
 export interface HandoffViewProps {
   projectId: string;
@@ -23,129 +25,120 @@ export interface HandoffViewProps {
 
 type Runtime = 'claude-code' | 'qwen-code' | 'codex';
 
+function runtimeLabel(runtime: Runtime): string {
+  return runtime === 'claude-code' ? 'Claude Code' : runtime === 'qwen-code' ? 'Qwen Code' : 'Codex';
+}
+
+function renderForRuntime(runtime: Runtime, snapshot: HandoffSnapshot): string {
+  return runtime === 'claude-code'
+    ? renderHandoffClaudeCode(snapshot)
+    : runtime === 'qwen-code'
+      ? renderHandoffQwenCode(snapshot)
+      : renderHandoffCodex(snapshot);
+}
+
 export function HandoffView({ projectId, projectName, onClose, onSessions }: HandoffViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<Runtime>('codex');
-  const [output, setOutput] = useState<string>('');
-  const [progressSummary, setProgressSummary] = useState<string>('');
-  const [contextStatus, setContextStatus] = useState<string>('Updating project context…');
+  const [output, setOutput] = useState('');
+  const [progressSummary, setProgressSummary] = useState('');
+  const [contextStatus, setContextStatus] = useState('Loading project context…');
   const [snapshot, setSnapshot] = useState<HandoffSnapshot | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const runtimeRef = useRef(runtime);
+  const requestRef = useRef(0);
+  const refreshingRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [project, initialMemory] = await Promise.all([
-          getProject(projectId),
-          getMemory(projectId),
-        ]);
-        if (cancelled) return;
-        if (!project) throw new Error('The registered project could not be found.');
-        let memory = initialMemory;
-        const git = await getGitSnapshot(projectId, memory.semanticContext?.snapshot?.head_commit ?? undefined);
+  useEffect(() => { runtimeRef.current = runtime; }, [runtime]);
 
-        // Retrieve active task from project memory + compilation history.
-        let currentTask: TaskSpec | null = null;
-        let currentCompilation: CompilationRecord | null = null;
-        if (memory.currentTaskId) {
-          try {
-            const comp = await getCompilationForProject(projectId, memory.currentTaskId);
-            if (comp?.taskspecJson) {
-              currentCompilation = comp;
-              currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
-            }
-          } catch { /* task unavailable — continue without */ }
-        }
+  const updateDisplayedSnapshot = useCallback((next: HandoffSnapshot) => {
+    setSnapshot(next);
+    const progress = classifyProgress(next);
+    const parts: string[] = [repositoryFreshnessLabel(next.git)];
+    if (progress.isInterrupted) parts.push('Uncommitted work detected');
+    if (progress.memoryMayBeStale) parts.push('Memory differs from current HEAD');
+    if (next.memory.currentPhase) parts.push(`Phase: ${next.memory.currentPhase}`);
+    setProgressSummary(parts.join(' · '));
+    setOutput(renderForRuntime(runtimeRef.current, next));
+  }, []);
 
-        const refreshed = await refreshSemanticContextIfNeeded({
-          projectId,
-          repoPath: project.repoPath,
-          memory,
-          git,
-          currentTask,
-        });
-        memory = refreshed.memory;
-        if (refreshed.state === 'unavailable') {
-          setContextStatus('Git state current · semantic context unavailable');
-        } else {
-          setContextStatus('Fresh');
-        }
+  const refresh = useCallback(async (showLoading: boolean) => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    const requestId = ++requestRef.current;
+    if (showLoading) setLoading(true);
+    setError(null);
+    try {
+      const [project, initialMemory] = await Promise.all([getProject(projectId), getMemory(projectId)]);
+      if (!project) throw new Error('The registered project could not be found.');
+      let memory = initialMemory;
+      const git = await getGitSnapshot(projectId, memory.semanticContext?.snapshot?.head_commit ?? undefined);
 
-        const snap = assembleSnapshot({
-          projectId,
-          projectName,
-          repoPath: project.repoPath,
-          memory,
-          git,
-          currentTask,
-          currentCompilation,
-        });
-        setSnapshot(snap);
-        if (cancelled) return;
-
-        const progress = classifyProgress(snap);
-        const parts: string[] = [];
-        if (git.isRepo) {
-          parts.push(`HEAD ${git.head?.hash.slice(0, 8) ?? 'unknown'}`);
-          const changed = git.uncommitted.staged.length + git.uncommitted.unstaged.length;
-          if (changed > 0) parts.push(`${changed} file(s) modified`);
-        } else {
-          parts.push('(git unavailable — memory-only)');
-        }
-        if (progress.isInterrupted) parts.push('Uncommitted work detected.');
-        if (progress.memoryMayBeStale) parts.push('Memory may be stale vs current HEAD.');
-        if (memory.currentPhase) parts.push(`Phase: ${memory.currentPhase}`);
-        setProgressSummary(parts.join(' · ') || 'Ready.');
-
-        // Initial render.
-        const rendered = renderHandoffCodex(snap);
-        if (!cancelled) setOutput(rendered);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Handoff failed.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectId, projectName]);
-
-  const handleRuntimeChange = (rt: Runtime) => {
-    setRuntime(rt);
-    // Re-render with same snapshot (memory + git are stale in closure but
-    // sufficient for a quick switch — full refresh on effect re-run).
-    // For the MVP flow, re-fetch.
-    setLoading(true);
-    (async () => {
-      try {
-        const [project, memory, git] = await Promise.all([
-          getProject(projectId),
-          getMemory(projectId),
-          getGitSnapshot(projectId),
-        ]);
-        if (!project) throw new Error('The registered project could not be found.');
-        let currentTask: TaskSpec | null = null;
-        let currentCompilation: CompilationRecord | null = null;
-        if (memory.currentTaskId) {
+      let currentTask: TaskSpec | null = null;
+      let currentCompilation: CompilationRecord | null = null;
+      if (memory.currentTaskId) {
+        try {
           const comp = await getCompilationForProject(projectId, memory.currentTaskId);
           if (comp?.taskspecJson) {
             currentCompilation = comp;
             currentTask = JSON.parse(comp.taskspecJson) as TaskSpec;
           }
+        } catch {
+          // A missing historical task should not hide current repository state.
         }
-        const snap = assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation });
-        const fn = rt === 'claude-code' ? renderHandoffClaudeCode
-          : rt === 'qwen-code' ? renderHandoffQwenCode
-          : renderHandoffCodex;
-        setOutput(fn(snap));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Handoff failed.');
-      } finally {
-        setLoading(false);
       }
-    })();
+
+      const liveSnapshot = assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation });
+      if (requestId !== requestRef.current) return;
+      updateDisplayedSnapshot(liveSnapshot);
+
+      const [contextDocs, guidance] = await Promise.all([
+        listContextDocs(projectId),
+        inspectProjectGuidance(projectId),
+      ].map(async (promise) => {
+        try { return { ok: true as const, value: await promise }; }
+        catch (err) { return { ok: false as const, error: err }; }
+      }));
+      const contextParts: string[] = [];
+      if (guidance.ok && guidance.value.length > 0) contextParts.push('Repository guidance available');
+      if (!contextDocs.ok) contextParts.push('Project context could not be loaded');
+      else if (contextDocs.value.length > 0) contextParts.push('Project context documents configured');
+      else contextParts.push('No project context documents configured');
+      setContextStatus(contextParts.join(' · '));
+
+      const refreshed = await refreshSemanticContextIfNeeded({ projectId, repoPath: project.repoPath, memory, git, currentTask });
+      memory = refreshed.memory;
+      if (requestId !== requestRef.current) return;
+      updateDisplayedSnapshot(replaceLiveGitSnapshot(
+        assembleSnapshot({ projectId, projectName, repoPath: project.repoPath, memory, git, currentTask, currentCompilation }),
+        git,
+      ));
+    } catch (err) {
+      if (requestId === requestRef.current) setError(err instanceof Error ? err.message : 'Project state could not be loaded.');
+    } finally {
+      if (requestId === requestRef.current) setLoading(false);
+      refreshingRef.current = false;
+    }
+  }, [projectId, projectName, updateDisplayedSnapshot]);
+
+  useEffect(() => {
+    void refresh(true);
+    const timer = window.setInterval(() => { void refresh(false); }, 1500);
+    const onFocus = () => { void refresh(false); };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      requestRef.current += 1;
+    };
+  }, [refresh]);
+
+  const handleRuntimeChange = (nextRuntime: Runtime) => {
+    setRuntime(nextRuntime);
+    runtimeRef.current = nextRuntime;
+    if (snapshot) setOutput(renderForRuntime(nextRuntime, snapshot));
   };
 
   const startPersistentSession = async () => {
@@ -160,62 +153,69 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
         git: snapshot.git,
       });
       setSessionId(session.id);
-      setSessionMessage(`Persistent session started (${session.id.slice(0, 20)}…).`);
+      setSessionMessage('Session ready to resume.');
+      void refresh(false);
     } catch (err) {
-      setSessionMessage(err instanceof Error ? err.message : 'Could not start a persistent session.');
+      setSessionMessage(err instanceof Error ? err.message : 'Could not start a session.');
     }
   };
 
-  const tabClass = (rt: Runtime) =>
-    `rounded-t-md px-3 py-1.5 text-xs font-medium ${
-      runtime === rt
-        ? 'border-x border-t border-zinc-200 bg-white text-zinc-900'
-        : 'text-zinc-500 hover:text-zinc-700'
-    }`;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <section className="space-y-6">
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Continue: {projectName}</h2>
-          <p className="text-xs text-zinc-500">Context: {contextStatus} · {progressSummary}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Continue</p>
+          <h2 className="mt-1 text-xl font-semibold">{projectName}</h2>
+          <p className="mt-2 text-sm text-zinc-600">{contextStatus}</p>
+          <p className="mt-1 text-xs text-zinc-500">Repository freshness: {progressSummary || 'Checking…'}</p>
         </div>
-        <button onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-700">
-          Close
-        </button>
+        <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-700">Back</button>
       </div>
 
-      {loading && <p className="text-sm text-zinc-500">Loading project state…</p>}
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-      )}
+      {loading && <p className="text-sm text-zinc-500" role="status">Refreshing project state…</p>}
+      {error && <div className="border-y border-red-200 py-3 text-sm text-red-700" role="alert">{error}</div>}
 
-      {!loading && !error && (
+      {!error && snapshot && (
         <>
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs">
-            <span className="text-zinc-600">Session Core</span>
-            {sessionId ? (
-              <>
-                <span className="text-emerald-700">Persistent session active.</span>
-                {onSessions && <button type="button" onClick={() => onSessions(projectId, projectName)} className="underline">Open Sessions</button>}
-              </>
-            ) : (
-              <button type="button" onClick={() => void startPersistentSession()} className="rounded border border-zinc-300 bg-white px-2 py-1 font-medium">Start persistent session</button>
+          <div className="border-y border-zinc-200 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Current task</p>
+            <h3 className="mt-1 text-base font-semibold">{snapshot.currentTask?.objective ?? 'No active task'}</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Status: {snapshot.currentTask ? classifyProgress(snapshot).isInterrupted ? 'In progress' : 'Ready to resume' : 'No task in progress'}
+            </p>
+            {snapshot.currentTask && (
+              <p className="mt-1 text-xs text-zinc-500">
+                Model: {snapshot.currentTask.target_model} · Execution runtime: {runtimeLabel(runtime)}
+              </p>
             )}
-            {sessionMessage && <span className="text-zinc-500">{sessionMessage}</span>}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {sessionId && onSessions ? (
+                <button type="button" onClick={() => onSessions(projectId, projectName)} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Open Session</button>
+              ) : (
+                <button type="button" onClick={() => void startPersistentSession()} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Resume / Open Session</button>
+              )}
+              {sessionMessage && <span className="self-center text-xs text-zinc-500">{sessionMessage}</span>}
+            </div>
           </div>
-          <div className="flex gap-1 border-b border-zinc-200">
-            {(['codex', 'claude-code', 'qwen-code'] as Runtime[]).map((rt) => (
-              <button key={rt} onClick={() => handleRuntimeChange(rt)} className={tabClass(rt)}>
-                {rt === 'claude-code' ? 'Claude Code' : rt === 'qwen-code' ? 'Qwen Code' : 'Codex'}
-              </button>
-            ))}
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Execution runtime</p>
+            <div className="mt-2 flex gap-4 border-b border-zinc-200">
+              {(['codex', 'claude-code', 'qwen-code'] as Runtime[]).map((candidate) => (
+                <button key={candidate} type="button" onClick={() => handleRuntimeChange(candidate)} className={`border-b-2 px-1 py-2 text-sm ${runtime === candidate ? 'border-zinc-900 font-medium text-zinc-900' : 'border-transparent text-zinc-500 hover:text-zinc-800'}`}>
+                  {runtimeLabel(candidate)}
+                </button>
+              ))}
+            </div>
           </div>
-          <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 font-mono">
-            {output}
-          </pre>
+
+          <details className="border-t border-zinc-200 pt-4">
+            <summary className="cursor-pointer text-sm font-medium">View continuation prompt</summary>
+            <p className="mt-2 text-xs text-zinc-500">Generated for {runtimeLabel(runtime)}. The canonical prompt is assembled from this project&apos;s local state.</p>
+            <pre className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap border-y border-zinc-200 py-4 text-xs text-zinc-700">{output}</pre>
+          </details>
         </>
       )}
-    </div>
+    </section>
   );
 }

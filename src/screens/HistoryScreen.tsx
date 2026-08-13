@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import type { CompilationRecord } from '../db/repos/compilations';
 import type { OutcomeRecord } from '../db/repos/outcomes';
 import type { ProjectUsage, RuntimeUsage } from '../services/usageService';
+import { getCompilationOutcome as loadOutcome, listHistory as loadHistory, saveCompilationOutcome as persistOutcome } from '../services/historyService';
+import { getProjectUsage, getRuntimeUsage as loadRuntimeUsage } from '../services/usageService';
 import { OutcomeDialog } from '../components/OutcomeDialog';
 
 /**
@@ -27,6 +29,7 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
   const [usage, setUsage] = useState<ProjectUsage | null>(null);
   const [runtimeUsage, setRuntimeUsage] = useState<RuntimeUsage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [outcomeFor, setOutcomeFor] = useState<string | null>(null);
   const [existingOutcome, setExistingOutcome] = useState<OutcomeRecord | null>(null);
@@ -35,25 +38,42 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
   const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
-    if (!deps?.listHistory) return;
     setLoading(true);
-    const h = await deps.listHistory(projectId, PAGE_SIZE, page * PAGE_SIZE);
-    setHistory(h);
-    if (deps.getUsage) setUsage(await deps.getUsage(projectId));
-    if (deps.getRuntimeUsage) setRuntimeUsage(await deps.getRuntimeUsage(projectId));
-    // Load outcomes for visible history rows.
-    if (deps.getOutcome) {
+    setLoadError(null);
+    try {
+      const list = deps?.listHistory ?? loadHistory;
+      const getUsage = deps?.getUsage ?? getProjectUsage;
+      const getRuntime = deps?.getRuntimeUsage ?? loadRuntimeUsage;
+      const getVisibleOutcome = deps?.getOutcome ?? loadOutcome;
+      const [h, nextUsage, nextRuntimeUsage] = await Promise.all([
+        list(projectId, PAGE_SIZE, page * PAGE_SIZE),
+        getUsage(projectId),
+        getRuntime(projectId),
+      ]);
+      setHistory(h);
+      setUsage(nextUsage);
+      setRuntimeUsage(nextRuntimeUsage);
+
+      // Load outcomes for visible history rows.
       const map = new Map<string, OutcomeRecord>();
       for (const c of h) {
-        const o = await deps.getOutcome(c.id);
+        const o = await getVisibleOutcome(c.id);
         if (o) map.set(c.id, o);
       }
       setOutcomes(map);
+    } catch (err) {
+      setHistory([]);
+      setUsage(null);
+      setRuntimeUsage([]);
+      setOutcomes(new Map());
+      setLoadError(err instanceof Error && err.message !== '' ? err.message : 'History could not be loaded.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [projectId, page, deps]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(0); }, [projectId]);
 
   const openOutcome = async (compId: string) => {
     setOutcomeFor(compId);
@@ -63,11 +83,9 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
   };
 
   const handleSaveOutcome = async (o: OutcomeRecord) => {
-    if (deps?.saveOutcome) {
-      await deps.saveOutcome(o);
-      setOutcomeFor(null);
-      load();
-    }
+    await (deps?.saveOutcome ?? persistOutcome)(o);
+    setOutcomeFor(null);
+    void load();
   };
 
   const statusBadge = (s: string) => {
@@ -130,12 +148,22 @@ export function HistoryScreen({ projectId, deps }: HistoryScreenProps) {
       {/* History list */}
       {loading && <p className="text-sm text-zinc-500">Loading…</p>}
 
-      {!loading && history.length === 0 && (
+      {!loading && loadError && (
+        <div className="border-y border-red-200 py-4 text-sm text-red-700" role="alert">
+          <p>History could not be loaded.</p>
+          <p className="mt-1 text-xs text-red-600">{loadError}</p>
+          <button type="button" onClick={() => void load()} className="mt-3 rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-medium">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !loadError && history.length === 0 && (
         <p className="text-sm text-zinc-500">No compilations yet.</p>
       )}
 
-      {history.map((c) => (
-        <div key={c.id} className="rounded-md border border-zinc-200 bg-white p-4">
+      {!loading && !loadError && history.map((c) => (
+        <div key={c.id} className="border-t border-zinc-200 py-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-mono text-zinc-400">{c.id}</span>
             <div className="flex items-center gap-2">

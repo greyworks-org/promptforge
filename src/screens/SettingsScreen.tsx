@@ -8,6 +8,7 @@ import {
 } from '../schemas/providerProfile';
 import {
   loadProfile,
+  listProfiles,
   saveProfile,
 } from '../services/settingsService';
 import {
@@ -17,13 +18,16 @@ import {
   testConnection,
   type ConnectionTestResult,
 } from '../services/providerService';
+import { MODEL_CATALOG, inferKnownProviderId } from '../models/catalog';
 
 type KeyState = 'unknown' | 'stored' | 'absent';
+const EMPTY_PROFILE_LIST = async (): Promise<ProviderProfile[]> => [];
 
 export interface SettingsScreenProps {
   /** Injectable for tests; default to the real services. */
   deps?: {
     loadProfile?: typeof loadProfile;
+    listProfiles?: typeof listProfiles;
     saveProfile?: typeof saveProfile;
     saveApiKey?: typeof saveApiKey;
     deleteApiKey?: typeof deleteApiKey;
@@ -39,9 +43,13 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   const deleteKey = deps?.deleteApiKey ?? deleteApiKey;
   const keyExists = deps?.hasApiKey ?? hasApiKey;
   const runTest = deps?.testConnection ?? testConnection;
+  const list = deps?.listProfiles ?? (load === loadProfile ? listProfiles : EMPTY_PROFILE_LIST);
 
+  const [profileId, setProfileId] = useState(DEFAULT_PROFILE_ID);
+  const [profiles, setProfiles] = useState<ProviderProfile[]>([]);
   const [label, setLabel] = useState('');
   const [providerId, setProviderId] = useState('');
+  const [catalogModelId, setCatalogModelId] = useState<string>(MODEL_CATALOG[0].id);
   const [baseUrl, setBaseUrl] = useState('');
   const [modelId, setModelId] = useState('');
   const [runtimeModelRef, setRuntimeModelRef] = useState('');
@@ -63,21 +71,27 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     } catch {
       setKeyState('unknown');
     }
-  }, [keyExists]);
+  }, [keyExists, profileId]);
 
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
       let existing: ProviderProfile | null = null;
       try {
-        existing = await load();
+        const [loaded, available] = await Promise.all([load(), list()]);
+        existing = loaded;
+        if (!cancelled) setProfiles(available.length > 0 ? available : loaded ? [loaded] : []);
       } catch {
         existing = null;
+        if (!cancelled) setProfiles([]);
       }
       if (cancelled) return;
       const profile = existing ?? defaultProfile();
+      const knownProviderId = inferKnownProviderId(profile);
+      setProfileId(profile.id);
       setLabel(profile.label);
-      setProviderId(profile.providerId ?? '');
+      setProviderId(knownProviderId ?? profile.providerId ?? '');
+      setCatalogModelId(MODEL_CATALOG.find((model) => model.providerId === knownProviderId)?.id ?? MODEL_CATALOG[0].id);
       setBaseUrl(profile.baseUrl);
       setModelId(profile.modelId);
       setRuntimeModelRef(profile.runtimeModelRef ?? '');
@@ -90,10 +104,40 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [load, refreshKeyState]);
+  }, [load, list, refreshKeyState]);
+
+  const selectCatalogModel = (modelId: string) => {
+    const model = MODEL_CATALOG.find((candidate) => candidate.id === modelId);
+    if (!model) return;
+    setCatalogModelId(model.id);
+    const existing = profiles.find((candidate) => inferKnownProviderId(candidate) === model.providerId);
+    if (existing) {
+      setProfileId(existing.id);
+      setLabel(existing.label);
+      setProviderId(inferKnownProviderId(existing) ?? model.providerId);
+      setBaseUrl(existing.baseUrl);
+      setModelId(existing.modelId);
+      setRuntimeModelRef(existing.runtimeModelRef ?? '');
+      setJsonMode(existing.capabilities.jsonMode);
+      setReasoningEffort(existing.params.reasoningEffort ?? 'high');
+    } else {
+      setProfileId(`${model.providerId}-primary`);
+      setLabel(`${model.displayName} provider`);
+      setProviderId(model.providerId);
+      setBaseUrl('');
+      setModelId('');
+      setRuntimeModelRef('');
+      setJsonMode('auto');
+      setReasoningEffort('high');
+      setKeyState('absent');
+    }
+    setResult(null);
+    setFormErrors([]);
+    setActionError(null);
+  };
 
   const buildCandidate = (): unknown => ({
-    id: DEFAULT_PROFILE_ID,
+    id: profileId,
     label: label.trim() === '' ? 'Default provider' : label.trim(),
     ...(providerId.trim() ? { providerId: providerId.trim() } : {}),
     baseUrl: baseUrl.trim(),
@@ -114,6 +158,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     setBusy('saving');
     try {
       await save(check.profile);
+      setProfiles((current) => [...current.filter((profile) => profile.id !== check.profile.id), check.profile]);
       if (apiKey.trim() !== '') {
         await saveKey(check.profile.id, apiKey.trim());
         setApiKey('');
@@ -130,7 +175,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
     setActionError(null);
     setBusy('saving');
     try {
-      await deleteKey(DEFAULT_PROFILE_ID);
+      await deleteKey(profileId);
       await refreshKeyState();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Deleting the key failed.');
@@ -152,7 +197,7 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
       return;
     }
     const profile: ProviderProfile = {
-      id: DEFAULT_PROFILE_ID,
+      id: profileId,
       label: label.trim() === '' ? 'Default provider' : label.trim(),
       ...(providerId.trim() ? { providerId: providerId.trim() } : {}),
       baseUrl: urlCheck.value,
@@ -173,10 +218,12 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
 
   const inputClass =
     'w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none';
+  const selectedModel = MODEL_CATALOG.find((model) => model.id === catalogModelId) ?? MODEL_CATALOG[0];
+  const selectedProfileIsConfigured = baseUrl.trim() !== '' && modelId.trim() !== '';
 
   if (loading) {
     return (
-      <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <section className="space-y-5">
         <p className="text-sm text-zinc-500" role="status">
           Loading settings…
         </p>
@@ -185,64 +232,46 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className="space-y-5">
       <h2 className="text-base font-semibold">Provider settings</h2>
       <p className="mt-1 text-sm text-zinc-500">
         Configure an OpenAI-compatible endpoint. The API key is stored in the
         macOS Keychain only — never in files, databases or logs.
       </p>
 
-      <div className="mt-5 grid gap-4">
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Profile label</span>
-          <input
-            className={inputClass}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="Default provider"
-          />
-        </label>
+      <div className="border-y border-zinc-200 py-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Provider profiles</p>
+        <div className="mt-2 divide-y divide-zinc-200">
+          {MODEL_CATALOG.map((model) => {
+            const profile = profiles.find((candidate) => inferKnownProviderId(candidate) === model.providerId);
+            const configured = profile !== undefined && profile.baseUrl.trim() !== '' && profile.modelId.trim() !== '';
+            return (
+              <button key={model.id} type="button" onClick={() => selectCatalogModel(model.id)} className={`flex w-full items-center justify-between py-2 text-left text-sm ${model.id === catalogModelId ? 'font-medium text-zinc-900' : 'text-zinc-600'}`}>
+                <span>{model.displayName}</span>
+                <span className="text-xs text-zinc-500">{configured ? 'Configured' : 'Setup required'}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
+      <div className="grid gap-4">
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Provider identity</span>
-          <select className={inputClass} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-            <option value="">Choose a provider</option>
+          <span className="font-medium">Provider</span>
+          <select aria-label="Provider identity" className={inputClass} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+            <option value="">Custom / unknown</option>
             <option value="openai">OpenAI</option>
             <option value="qwen">Qwen</option>
             <option value="deepseek">DeepSeek</option>
           </select>
-          <span className="text-xs text-zinc-400">Used to bind the configured endpoint to the compact model selector.</span>
-        </label>
-
-        <div className="grid gap-1 text-sm">
-          <label className="grid gap-1">
-            <span className="font-medium">Base URL</span>
-            <input
-              className={inputClass}
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://your-endpoint.example.com/v1"
-            />
-          </label>
-          <span className="text-xs text-zinc-400">
-            The /chat/completions path is appended by the transport.
-          </span>
-        </div>
-
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Model ID</span>
-          <input
-            className={inputClass}
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-            placeholder="As configured on your endpoint (no default)"
-          />
         </label>
 
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">OpenCode model reference (optional)</span>
-          <input className={inputClass} value={runtimeModelRef} onChange={(e) => setRuntimeModelRef(e.target.value)} placeholder="provider/configured-model-id" />
-          <span className="text-xs text-zinc-400">Required when this provider is selected for an OpenCode session; PromptForge never guesses it.</span>
+          <span className="font-medium">Model</span>
+          <select className={inputClass} value={catalogModelId} onChange={(e) => selectCatalogModel(e.target.value)}>
+            {MODEL_CATALOG.map((model) => <option key={model.id} value={model.id}>{model.displayName}</option>)}
+          </select>
+          <span className="text-xs text-zinc-500">{selectedModel.displayName} · {selectedProfileIsConfigured ? 'configured' : 'setup required'}</span>
         </label>
 
         <div className="grid gap-1 text-sm">
@@ -264,36 +293,54 @@ export function SettingsScreen({ deps }: SettingsScreenProps) {
           </span>
         </div>
 
-        <div className="grid gap-1 text-sm">
-          <label className="grid gap-1">
-            <span className="font-medium">JSON response mode</span>
-            <select
-              className={inputClass}
-              value={jsonMode}
-              onChange={(e) => setJsonMode(e.target.value as 'auto' | 'on' | 'off')}
-            >
-              <option value="auto">auto — decide after connection test</option>
-              <option value="on">on — request JSON response_format</option>
-              <option value="off">off — plain chat, client parses</option>
-            </select>
-          </label>
-        </div>
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">Advanced configuration</summary>
+          <div className="mt-4 grid gap-4">
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Profile label</span>
+              <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Default provider" />
+            </label>
 
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Reasoning effort</span>
-          <select
-            className={inputClass}
-            value={reasoningEffort}
-            onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
-          >
-            <option value="none">none — provider default</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-            <option value="maximum">maximum</option>
-          </select>
-          <span className="text-xs text-zinc-400">Used when the endpoint supports reasoning controls; ignored for legacy-compatible endpoints.</span>
-        </label>
+            <div className="grid gap-1 text-sm">
+              <label className="grid gap-1">
+                <span className="font-medium">Base URL</span>
+                <input className={inputClass} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://your-endpoint.example.com/v1" />
+              </label>
+              <span className="text-xs text-zinc-400">The /chat/completions path is appended by the transport.</span>
+            </div>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Model ID</span>
+              <input className={inputClass} value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="As configured on your endpoint (no default)" />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">OpenCode model reference (optional)</span>
+              <input className={inputClass} value={runtimeModelRef} onChange={(e) => setRuntimeModelRef(e.target.value)} placeholder="provider/configured-model-id" />
+              <span className="text-xs text-zinc-400">PromptForge never guesses this runtime reference.</span>
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">JSON response mode</span>
+              <select className={inputClass} value={jsonMode} onChange={(e) => setJsonMode(e.target.value as 'auto' | 'on' | 'off')}>
+                <option value="auto">auto — decide after connection test</option>
+                <option value="on">on — request JSON response_format</option>
+                <option value="off">off — plain chat, client parses</option>
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Reasoning effort</span>
+              <select className={inputClass} value={reasoningEffort} onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}>
+                <option value="none">none — provider default</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="maximum">maximum</option>
+              </select>
+            </label>
+          </div>
+        </details>
       </div>
 
       {formErrors.length > 0 && (

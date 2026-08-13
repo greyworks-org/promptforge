@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SettingsScreen, type SettingsScreenProps } from './SettingsScreen';
 import type { ConnectionTestResult } from '../services/providerService';
-import type { ProviderProfile } from '../schemas/providerProfile';
+import { defaultProfile, type ProviderProfile } from '../schemas/providerProfile';
 
 function makeDeps(overrides: Partial<NonNullable<SettingsScreenProps['deps']>> = {}) {
   return {
@@ -43,6 +43,19 @@ beforeEach(() => {
 });
 
 describe('SettingsScreen', () => {
+  it('shows the known provider identity for a legacy Luna profile', async () => {
+    const profile: ProviderProfile = {
+      ...defaultProfile(),
+      label: 'OpenAI GPT 5.6 Luna',
+      baseUrl: 'https://api.openai.com/v1',
+      modelId: 'gpt-5.6-luna',
+    };
+    render(<SettingsScreen deps={makeDeps({ loadProfile: vi.fn(async () => profile), listProfiles: vi.fn(async () => [profile]) })} />);
+    expect((await screen.findByLabelText('Provider identity') as HTMLSelectElement).value).toBe('openai');
+    expect(screen.getAllByText('Luna 5.6 High').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Choose a provider')).toBeNull();
+  });
+
   it('renders the provider form', async () => {
     render(<SettingsScreen deps={makeDeps()} />);
     expect(await screen.findByLabelText('Base URL')).toBeTruthy();
