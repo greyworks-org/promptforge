@@ -50,6 +50,20 @@ export interface PipelineState {
   answers: string[];
 }
 
+export interface CompilerProjectIntelligence {
+  product: string | null;
+  architecture: string[];
+  constraints: string[];
+  nonGoals: string[];
+  decisions: string[];
+  milestones: string[];
+  verifiedComplete: string[];
+  partial: string[];
+  blocked: string[];
+  remaining: string[];
+  unknowns: string[];
+}
+
 export interface CompileRequest {
   profile: ProviderProfile;
   projectId: string;
@@ -58,6 +72,12 @@ export interface CompileRequest {
   contextDocs: Array<{ relPath: string; content: string }>;
   /** Bounded provider-neutral project facts from the active memory record. */
   projectMemory?: Pick<MemoryRecord, 'stack' | 'currentPhase' | 'decisions' | 'blockers' | 'relevantFiles'>;
+  /**
+   * Evidence-derived Project Intelligence summary. It lets a short user intent
+   * compile into a bounded technical task without the user restating the
+   * architecture, constraints or roadmap position.
+   */
+  projectIntelligence?: CompilerProjectIntelligence;
   /** Existing project rule files; guidance has precedence over generic defaults. */
   projectGuidance?: Array<{ relPath: string; content: string }>;
   /** Previous blocking-question answers (for re-runs). */
@@ -130,6 +150,9 @@ export async function runPipeline(request: CompileRequest): Promise<PipelineStat
 
   // Build the full user message including context + answers.
   let userMessage = request.rawRequest;
+  if (request.projectIntelligence) {
+    userMessage += `\n\nProject intelligence (evidence-derived state of this project; treat UNKNOWN as unknown and never invent roadmap facts):\n${JSON.stringify(request.projectIntelligence)}`;
+  }
   if (request.projectMemory) {
     userMessage += `\n\nProject memory (known facts and explicit decisions; do not override repository reality):\n${JSON.stringify(request.projectMemory)}`;
   }

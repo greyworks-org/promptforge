@@ -25,6 +25,7 @@ export default function App() {
   const [screen, setScreen] = useState<ScreenId>('projects');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [handoffProjectName, setHandoffProjectName] = useState('');
+  const [compilerPrefill, setCompilerPrefill] = useState('');
   const taskSpec: TaskSpec | null = null;
   const contextSent = '';
   const rawRequest = '';
@@ -51,7 +52,7 @@ export default function App() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setScreen(id)}
+                  onClick={() => { if (id === 'compiler') setCompilerPrefill(''); setScreen(id); }}
                   aria-pressed={screen === id}
                   className={tabClass(screen === id)}
                 >
@@ -92,6 +93,7 @@ export default function App() {
         {screen === 'compiler' && (
           <CompilerScreen
             activeProjectId={activeProjectId}
+            initialRequest={compilerPrefill}
           />
         )}
         {screen === 'result' && taskSpec && activeProfile && (
@@ -122,6 +124,11 @@ export default function App() {
               setActiveProjectId(projectId);
               setHandoffProjectName(projectName);
               setScreen('sessions');
+            }}
+            onCompiler={(projectId, prefill) => {
+              setActiveProjectId(projectId);
+              setCompilerPrefill(prefill);
+              setScreen('compiler');
             }}
           />
         )}

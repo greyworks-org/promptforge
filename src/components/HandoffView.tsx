@@ -17,12 +17,20 @@ import { ensureExecutionSession } from '../sessions/executionSessionService';
 import { deriveContinuationState } from '../handoff/continuationState';
 import { deriveActiveSessionContinuation } from '../services/continuationRefresh';
 import { replaceLiveGitSnapshot, repositoryFreshnessLabel } from '../services/projectFreshness';
+import {
+  bootstrapProjectIntelligence,
+  getProjectIntelligence,
+  recommendNextTask,
+} from '../services/projectIntelligenceService';
+import type { NextTaskRecommendation, ProjectIntelligence } from '../intelligence/types';
 
 export interface HandoffViewProps {
   projectId: string;
   projectName: string;
   onClose: () => void;
   onSessions?: (projectId: string, projectName: string) => void;
+  /** Open the Compiler for this project, optionally with a prefilled intent. */
+  onCompiler?: (projectId: string, prefill: string) => void;
 }
 
 type Runtime = 'claude-code' | 'qwen-code' | 'codex';
@@ -39,7 +47,7 @@ function renderForRuntime(runtime: Runtime, snapshot: HandoffSnapshot): string {
       : renderHandoffCodex(snapshot);
 }
 
-export function HandoffView({ projectId, projectName, onClose, onSessions }: HandoffViewProps) {
+export function HandoffView({ projectId, projectName, onClose, onSessions, onCompiler }: HandoffViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<Runtime>('codex');
@@ -49,6 +57,10 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
   const [snapshot, setSnapshot] = useState<HandoffSnapshot | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [intelligence, setIntelligence] = useState<ProjectIntelligence | null>(null);
+  const [recommendation, setRecommendation] = useState<NextTaskRecommendation | null>(null);
+  const [intelligenceBusy, setIntelligenceBusy] = useState(false);
+  const [intelligenceMessage, setIntelligenceMessage] = useState<string | null>(null);
   const runtimeRef = useRef(runtime);
   const requestRef = useRef(0);
   const refreshingRef = useRef(false);
@@ -155,6 +167,54 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
     };
   }, [refresh]);
 
+  // The persisted record is read without deriving; deriving is an explicit action.
+  useEffect(() => {
+    let cancelled = false;
+    getProjectIntelligence(projectId)
+      .then((record) => {
+        if (cancelled) return;
+        setIntelligence(record);
+        setRecommendation(record?.recommendation ?? null);
+      })
+      .catch(() => { if (!cancelled) setIntelligence(null); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const runProjectIntelligence = async () => {
+    setIntelligenceBusy(true);
+    setIntelligenceMessage(null);
+    try {
+      const existed = intelligence !== null;
+      const result = await bootstrapProjectIntelligence(projectId);
+      setIntelligence(result.intelligence);
+      setRecommendation(result.intelligence.recommendation);
+      setIntelligenceMessage(existed
+        ? 'Project intelligence reconciled with the current repository evidence.'
+        : 'Project intelligence created from the current repository evidence.');
+    } catch (err) {
+      setIntelligenceMessage(err instanceof Error ? err.message : 'Project intelligence could not be derived.');
+    } finally {
+      setIntelligenceBusy(false);
+    }
+  };
+
+  const loadRecommendation = async () => {
+    setIntelligenceBusy(true);
+    setIntelligenceMessage(null);
+    try {
+      const result = await recommendNextTask(projectId);
+      setIntelligence(result.intelligence);
+      setRecommendation(result.recommendation);
+      if (result.recommendation === null) {
+        setIntelligenceMessage('No next task can be recommended from the current evidence.');
+      }
+    } catch (err) {
+      setIntelligenceMessage(err instanceof Error ? err.message : 'A next task could not be recommended.');
+    } finally {
+      setIntelligenceBusy(false);
+    }
+  };
+
   const handleRuntimeChange = (nextRuntime: Runtime) => {
     setRuntime(nextRuntime);
     runtimeRef.current = nextRuntime;
@@ -173,6 +233,10 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
       setOutput(renderForRuntime(nextRuntime, { ...snapshot, continuationState: state }));
     }
   };
+
+  // A completed task must not be replayed as ordinary resume work.
+  const taskFinished = snapshot !== null
+    && (snapshot.continuationState?.taskStatus === 'completed' || snapshot.currentTask === null);
 
   const startPersistentSession = async () => {
     if (!snapshot) return;
@@ -233,13 +297,58 @@ export function HandoffView({ projectId, projectName, onClose, onSessions }: Han
                 <div><p className="font-medium text-zinc-800">Next</p><p>{snapshot.continuationState.nextAction}</p></div>
               </div>
             )}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {sessionId && onSessions ? (
-                <button type="button" onClick={() => onSessions(projectId, projectName)} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Open Session</button>
-              ) : (
-                <button type="button" onClick={() => void startPersistentSession()} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Resume / Open Session</button>
-              )}
-              {sessionMessage && <span className="self-center text-xs text-zinc-500">{sessionMessage}</span>}
+            {taskFinished ? (
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-medium text-zinc-900">
+                  {snapshot.currentTask ? 'Current task complete.' : 'No task in progress.'}
+                </p>
+                {recommendation !== null && (
+                  <div className="text-sm">
+                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Recommended next task</p>
+                    <p className="mt-1 text-zinc-800">{recommendation.intent}</p>
+                    <p className="mt-1 text-xs text-zinc-500">Why: {recommendation.rationale}</p>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {recommendation !== null && onCompiler && (
+                    <button type="button" onClick={() => onCompiler(projectId, recommendation.intent)} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Start Recommended Task</button>
+                  )}
+                  {onCompiler && (
+                    <button type="button" onClick={() => onCompiler(projectId, '')} className="rounded border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+                      {recommendation === null ? 'Start New Task' : 'Describe Something Else'}
+                    </button>
+                  )}
+                  {recommendation === null && (
+                    <button type="button" onClick={() => void loadRecommendation()} disabled={intelligenceBusy} className="rounded border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">
+                      {intelligenceBusy ? 'Deriving…' : 'Recommend next task'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {sessionId && onSessions ? (
+                  <button type="button" onClick={() => onSessions(projectId, projectName)} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Open Session</button>
+                ) : (
+                  <button type="button" onClick={() => void startPersistentSession()} className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Resume / Open Session</button>
+                )}
+                {sessionMessage && <span className="self-center text-xs text-zinc-500">{sessionMessage}</span>}
+              </div>
+            )}
+          </div>
+
+          <div className="border-b border-zinc-200 pb-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Project intelligence</p>
+            <p className="mt-1 text-sm text-zinc-600">
+              {intelligence === null
+                ? 'Not derived yet for this project.'
+                : `Derived ${intelligence.reconciledAt.slice(0, 10)} · ${intelligence.verifiedComplete.length} verified · ${intelligence.partial.length} unverified · ${intelligence.blocked.length} blocked · ${intelligence.unknowns.length} unknown`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" onClick={() => void runProjectIntelligence()} disabled={intelligenceBusy} className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">
+                {intelligenceBusy ? 'Working…' : intelligence === null ? 'Bootstrap project intelligence' : 'Reconcile project intelligence'}
+              </button>
+              {intelligenceMessage && <span className="self-center text-xs text-zinc-500">{intelligenceMessage}</span>}
             </div>
           </div>
 

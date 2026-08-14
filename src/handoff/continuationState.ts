@@ -5,7 +5,12 @@ import { deriveFunctionalVerificationPlan } from '../services/verification';
 import type { ExecutionSession, SessionEvent, SessionRuntime, RuntimeBinding } from '../sessions/types';
 import { filterHandoffPaths } from './metadata';
 
-export type ContinuationStatus = 'active' | 'completed' | 'blocked' | 'needs reconciliation';
+export type ContinuationStatus =
+  | 'active'
+  | 'completed'
+  | 'blocked'
+  | 'needs human review'
+  | 'needs reconciliation';
 
 export interface ExecutionIdentity {
   runtime: SessionRuntime | null;
@@ -183,15 +188,19 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
     ? 'completed'
     : blockers.length > 0
       ? 'blocked'
-      : externalChange
-        ? 'needs reconciliation'
-        : 'active';
+      : completion.outcome === 'NEEDS HUMAN REVIEW'
+        ? 'needs human review'
+        : externalChange
+          ? 'needs reconciliation'
+          : 'active';
   const noProgressEvidence = verifiedCompleted.length === 0 && unverified.length === 0 && checkpointNotes.length === 0 && verificationEvidence.length === 0;
   const nextAction = taskStatus === 'completed'
     ? 'TASK COMPLETE — run/use Verify & complete or start a new Compiler task.'
     : blockers.length > 0
       ? `Resolve or document the blocker first: ${blockers[0]}`
-      : taskStatus === 'needs reconciliation'
+      : taskStatus === 'needs human review'
+        ? 'NEEDS HUMAN REVIEW — the completion gate requires a human review decision before further execution.'
+        : taskStatus === 'needs reconciliation'
         ? 'PROJECT CHANGED OUTSIDE CURRENT SESSION — Reconciliation required. Validate the changed repository state against the intended task before editing.'
         : remaining.length > 0
           ? `Validate and complete the next remaining item: ${remaining[0]}`

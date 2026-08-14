@@ -46,6 +46,10 @@ Rules:
 16. Keep arrays concise: one concrete requirement per line, with no generic
     filler, repeated advice or essay-like planning.
 17. Avoid explanatory prose outside the JSON.
+18. A short user intent is a direction, not a gap. Derive the bounded technical
+    task from the supplied project intelligence and context. Anything the
+    evidence marks UNKNOWN stays unknown: never fill it with an invented
+    roadmap, milestone, architecture or completion claim.
 
 You must return a JSON object that validates against this schema:
 

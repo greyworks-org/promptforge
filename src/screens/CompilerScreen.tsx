@@ -14,6 +14,8 @@ import { getMemory } from '../services/memoryService';
 import { getCompilationForProject } from '../services/historyService';
 import { inspectProjectGuidance } from '../services/projectGuidance';
 import { readTextFile } from '../services/projectFs';
+import { compilerIntelligenceSummary, recommendNextTask } from '../services/projectIntelligenceService';
+import type { NextTaskRecommendation, ProjectIntelligence } from '../intelligence/types';
 
 /**
  * Compiler screen (Phase 6).
@@ -25,12 +27,15 @@ import { readTextFile } from '../services/projectFs';
 
 export interface CompilerScreenProps {
   activeProjectId: string | null;
+  /** Prefilled intent, for example an accepted next-task recommendation. */
+  initialRequest?: string;
 }
 
 export function CompilerScreen({
   activeProjectId,
+  initialRequest,
 }: CompilerScreenProps) {
-  const [rawRequest, setRawRequest] = useState('');
+  const [rawRequest, setRawRequest] = useState(initialRequest ?? '');
   const [taskType, setTaskType] = useState('auto');
   const [depth, setDepth] = useState('auto');
   const [targetRuntime, setTargetRuntime] = useState('claude-code');
@@ -120,6 +125,34 @@ export function CompilerScreen({
     return () => { cancelled = true; };
   }, [activeProjectId]);
 
+  const [intelligence, setIntelligence] = useState<ProjectIntelligence | null>(null);
+  const [recommendation, setRecommendation] = useState<NextTaskRecommendation | null>(null);
+
+  useEffect(() => { if (initialRequest !== undefined) setRawRequest(initialRequest); }, [initialRequest]);
+
+  // Project intelligence lets a short intent compile without the user
+  // restating architecture, constraints or roadmap position.
+  useEffect(() => {
+    if (!activeProjectId) {
+      setIntelligence(null);
+      setRecommendation(null);
+      return;
+    }
+    let cancelled = false;
+    recommendNextTask(activeProjectId)
+      .then((result) => {
+        if (cancelled) return;
+        setIntelligence(result.intelligence);
+        setRecommendation(result.recommendation);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIntelligence(null);
+        setRecommendation(null);
+      });
+    return () => { cancelled = true; };
+  }, [activeProjectId]);
+
   const [answers, setAnswers] = useState<string[]>([]);
 
   const handleCompile = useCallback(async () => {
@@ -174,6 +207,7 @@ export function CompilerScreen({
             }
           : undefined,
         projectGuidance,
+        projectIntelligence: intelligence === null ? undefined : compilerIntelligenceSummary(intelligence),
         answers: answers.length > 0 ? answers : undefined,
         previousState: state ?? undefined,
       };
@@ -229,7 +263,7 @@ export function CompilerScreen({
     } finally {
       setBusy(false);
     }
-  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedModelId, availableProfiles, contextDocs, projectMemory, projectGuidance, state, answers]);
+  }, [activeProjectId, rawRequest, taskType, depth, targetRuntime, selectedModelId, availableProfiles, contextDocs, projectMemory, projectGuidance, intelligence, state, answers]);
 
   const handleAnswersSubmit = useCallback(
     (newAnswers: string[]) => {
@@ -250,8 +284,9 @@ export function CompilerScreen({
       <div>
         <h2 className="text-xl font-semibold">Compiler</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Describe what you need and PromptForge will compile it into an
-          executable task for your coding agent.
+          Say what you want in your own words. PromptForge derives the technical
+          task from this project&apos;s intelligence — you do not need to know the
+          files, the plan or the next step.
         </p>
         {activeProjectId && (
           <p className="mt-1 text-xs text-zinc-400">
@@ -264,15 +299,34 @@ export function CompilerScreen({
         )}
       </div>
 
+      {/* Recommended next task from project intelligence */}
+      {recommendation !== null && (
+        <div className="border-y border-zinc-200 py-3 text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Recommended next task</p>
+          <p className="mt-1 text-zinc-800">{recommendation.intent}</p>
+          <p className="mt-1 text-xs text-zinc-500">{recommendation.rationale}</p>
+          <button
+            type="button"
+            onClick={() => setRawRequest(recommendation.intent)}
+            disabled={busy}
+            className="mt-2 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Use this
+          </button>
+        </div>
+      )}
+
       {/* Request input */}
       <label className="grid gap-1 text-sm">
-        <span className="font-medium">What do you need done?</span>
+        <span className="font-medium">What do you want?</span>
         <textarea
           className={inputClass}
-          rows={5}
+          rows={4}
           value={rawRequest}
           onChange={(e) => setRawRequest(e.target.value)}
-          placeholder="Describe the task in your own words. The compiler will clarify, scope and structure it."
+          placeholder={recommendation === null
+            ? 'Short intent is enough — "continue", "make onboarding simpler", "fix the failing import".'
+            : 'Short intent is enough. Anything you type here overrides the recommendation.'}
           disabled={busy}
         />
       </label>
