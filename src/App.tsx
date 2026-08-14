@@ -11,7 +11,7 @@ import { reconcileAllProjects } from './sessions/executionSessionService';
 import type { TaskSpec } from './schemas/taskspec';
 import { PROFILES } from './profiles/registry';
 import { getActiveProjectId } from './services/projectsService';
-import { processVscodeSessionAction } from './services/vscodeIntegration';
+import { processVscodeSessionAction, processVscodeProjectAction } from './services/vscodeIntegration';
 
 type ScreenId = 'projects' | 'settings' | 'onboarding' | 'compiler' | 'result' | 'history' | 'handoff' | 'sessions';
 
@@ -37,7 +37,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => { void processVscodeSessionAction().catch(() => {}); }, 500);
+    const timer = window.setInterval(() => {
+      void processVscodeSessionAction().catch(() => {});
+      void processVscodeProjectAction().catch(() => {});
+    }, 500);
     return () => window.clearInterval(timer);
   }, []);
 

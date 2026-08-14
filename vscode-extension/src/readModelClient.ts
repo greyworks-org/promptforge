@@ -308,6 +308,115 @@ export type SessionAction = 'start' | 'resume' | 'checkpoint' | 'model' | 'hando
 export interface SessionActionResult {
   status: 'pending' | 'succeeded' | 'failed';
   message: string;
+  outcome?: ProjectResumeOutcome | null;
+}
+
+export type ProjectResumeStatus =
+  | 'executed'
+  | 'completed'
+  | 'blocked'
+  | 'needs-human-review'
+  | 'no-active-task'
+  | 'no-project'
+  | 'configuration-required'
+  | 'failed';
+
+/** Decided entirely by PromptForge; VS Code only renders it. */
+export interface ProjectResumeOutcome {
+  status: ProjectResumeStatus;
+  repoRoot: string;
+  projectId: string | null;
+  projectName: string | null;
+  sessionId: string | null;
+  runtime: string | null;
+  modelRef: string | null;
+  taskObjective: string | null;
+  taskStatus: string | null;
+  nextAction: string | null;
+  blockers: string[];
+  recommendation: { basis: string; intent: string; rationale: string } | null;
+  message: string;
+}
+
+const RESUME_STATUSES: ProjectResumeStatus[] = [
+  'executed', 'completed', 'blocked', 'needs-human-review',
+  'no-active-task', 'no-project', 'configuration-required', 'failed',
+];
+
+function parseResumeOutcome(value: unknown): ProjectResumeOutcome | null {
+  if (!isRecord(value) || typeof value.status !== 'string' || typeof value.message !== 'string'
+    || !RESUME_STATUSES.includes(value.status as ProjectResumeStatus)) return null;
+  const recommendation = isRecord(value.recommendation)
+    && typeof value.recommendation.basis === 'string'
+    && typeof value.recommendation.intent === 'string'
+    && typeof value.recommendation.rationale === 'string'
+    ? {
+        basis: value.recommendation.basis,
+        intent: value.recommendation.intent,
+        rationale: value.recommendation.rationale,
+      }
+    : null;
+  return {
+    status: value.status as ProjectResumeStatus,
+    repoRoot: typeof value.repoRoot === 'string' ? value.repoRoot : '',
+    projectId: stringValue(value.projectId, true),
+    projectName: stringValue(value.projectName, true),
+    sessionId: stringValue(value.sessionId, true),
+    runtime: stringValue(value.runtime, true),
+    modelRef: stringValue(value.modelRef, true),
+    taskObjective: stringValue(value.taskObjective, true),
+    taskStatus: stringValue(value.taskStatus, true),
+    nextAction: stringValue(value.nextAction, true),
+    blockers: stringArray(value.blockers),
+    recommendation,
+    message: value.message,
+  };
+}
+
+/** Endpoint and token only: a project resume is not bound to one session. */
+export type WorkspaceEndpoint = Pick<VscodeConnection, 'endpoint' | 'token'>;
+
+export async function requestProjectResume(
+  connection: WorkspaceEndpoint,
+  repoRoot: string,
+): Promise<string> {
+  const response = await fetch(`${connection.endpoint.replace(/\/$/, '')}/v1/project-actions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${connection.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoRoot }),
+  });
+  if (!response.ok) throw new Error(`PromptForge rejected the project resume request (${response.status}).`);
+  const result = await response.json() as unknown;
+  if (!isRecord(result) || typeof result.actionId !== 'string') {
+    throw new Error('PromptForge returned an invalid project action response.');
+  }
+  return result.actionId;
+}
+
+export async function waitForProjectResume(
+  connection: WorkspaceEndpoint,
+  actionId: string,
+): Promise<SessionActionResult> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await fetch(`${connection.endpoint.replace(/\/$/, '')}/v1/project-actions/${encodeURIComponent(actionId)}`, {
+      headers: { Authorization: `Bearer ${connection.token}` },
+    });
+    if (!response.ok) throw new Error(`PromptForge project action status failed (${response.status}).`);
+    const result = await response.json() as unknown;
+    if (!isRecord(result) || typeof result.status !== 'string' || typeof result.message !== 'string'
+      || !['pending', 'succeeded', 'failed'].includes(result.status)) {
+      throw new Error('PromptForge returned an invalid project action status.');
+    }
+    if (result.status !== 'pending') {
+      return {
+        status: result.status as SessionActionResult['status'],
+        message: result.message,
+        outcome: parseResumeOutcome(result.outcome),
+      };
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error('PromptForge did not complete the project resume in time.');
 }
 
 export async function requestSessionAction(

@@ -9,7 +9,7 @@
     "vscode": "^1.96.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onView:promptforge.sessionStatus", "onCommand:promptforge.connect", "onCommand:promptforge.handoff"],
+  "activationEvents": ["onView:promptforge.sessionStatus", "onCommand:promptforge.connect", "onCommand:promptforge.handoff", "onCommand:promptforge.resumeCurrentProject"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -40,6 +40,10 @@
       {
         "command": "promptforge.handoff",
         "title": "PromptForge: Handoff"
+      },
+      {
+        "command": "promptforge.resumeCurrentProject",
+        "title": "PromptForge: Resume Current Project"
       }
     ],
     "configuration": {

@@ -22,6 +22,7 @@ struct BridgeStore {
     views: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     handoff_views: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     actions: Arc<Mutex<VecDeque<SessionAction>>>,
+    project_actions: Arc<Mutex<VecDeque<ProjectAction>>>,
     results: Arc<Mutex<HashMap<String, SessionActionResult>>>,
     next_action_id: Arc<AtomicU64>,
 }
@@ -111,11 +112,29 @@ pub struct SessionAction {
     pub payload: Option<Value>,
 }
 
+/// A workspace-scoped resume request. The repository root is the only input;
+/// PromptForge resolves the registered project from it and owns every decision.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAction {
+    pub id: String,
+    pub repo_root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectActionRequest {
+    repo_root: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionActionResult {
     pub status: String,
     pub message: String,
+    /// Structured outcome for project-level actions; absent for session actions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +161,7 @@ impl ReadModelBridge {
             views: Arc::new(Mutex::new(HashMap::new())),
             handoff_views: Arc::new(Mutex::new(HashMap::new())),
             actions: Arc::new(Mutex::new(VecDeque::new())),
+            project_actions: Arc::new(Mutex::new(VecDeque::new())),
             results: Arc::new(Mutex::new(HashMap::new())),
             next_action_id: Arc::new(AtomicU64::new(1)),
         };
@@ -215,6 +235,31 @@ impl ReadModelBridge {
             .map(|mut actions| actions.pop_front())
     }
 
+    fn queue_project_action(&self, input: ProjectActionRequest) -> Result<ProjectAction, String> {
+        let repo_root = validate_repo_root(&input.repo_root)?;
+        let action = ProjectAction {
+            id: format!(
+                "project-{}",
+                self.store.next_action_id.fetch_add(1, Ordering::Relaxed)
+            ),
+            repo_root,
+        };
+        self.store
+            .project_actions
+            .lock()
+            .map_err(|_| "The VS Code action bridge is unavailable.".to_string())?
+            .push_back(action.clone());
+        Ok(action)
+    }
+
+    fn take_project_action(&self) -> Result<Option<ProjectAction>, String> {
+        self.store
+            .project_actions
+            .lock()
+            .map_err(|_| "The VS Code action bridge is unavailable.".to_string())
+            .map(|mut actions| actions.pop_front())
+    }
+
     fn publish_handoff(&self, input: PublishHandoffView) -> Result<(), String> {
         validate_id(&input.project_id, "project id")?;
         validate_id(&input.session_id, "session id")?;
@@ -234,6 +279,7 @@ impl ReadModelBridge {
         action_id: String,
         success: bool,
         message: String,
+        outcome: Option<Value>,
     ) -> Result<(), String> {
         validate_id(&action_id, "action id")?;
         if message.len() > 1000 {
@@ -252,6 +298,7 @@ impl ReadModelBridge {
                         "failed".into()
                     },
                     message,
+                    outcome,
                 },
             );
         Ok(())
@@ -338,7 +385,39 @@ pub fn vscode_complete_session_action(
     success: bool,
     message: String,
 ) -> Result<(), String> {
-    bridge(&state)?.complete_action(action_id, success, message)
+    bridge(&state)?.complete_action(action_id, success, message, None)
+}
+
+#[tauri::command]
+pub fn vscode_take_project_action(
+    state: State<'_, crate::AppState>,
+) -> Result<Option<ProjectAction>, String> {
+    bridge(&state)?.take_project_action()
+}
+
+#[tauri::command]
+pub fn vscode_complete_project_action(
+    state: State<'_, crate::AppState>,
+    action_id: String,
+    success: bool,
+    message: String,
+    outcome: Option<Value>,
+) -> Result<(), String> {
+    bridge(&state)?.complete_action(action_id, success, message, outcome)
+}
+
+/// A workspace root is a path, not an identifier: it must be absolute and
+/// contain no traversal segment. PromptForge still matches it against the
+/// registry, so an unregistered root simply resolves to no project.
+fn validate_repo_root(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.len() > 4096 || !trimmed.starts_with('/') {
+        return Err("Invalid workspace repository root.".into());
+    }
+    if trimmed.contains('\0') || trimmed.split('/').any(|segment| segment == "..") {
+        return Err("Invalid workspace repository root.".into());
+    }
+    Ok(trimmed.to_string())
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -436,6 +515,27 @@ fn handle_connection(mut stream: TcpStream, store: &BridgeStore) {
         }
         return;
     }
+    if method == "POST" && path == "/v1/project-actions" {
+        let raw_body = request.split("\r\n\r\n").nth(1).unwrap_or_default();
+        match serde_json::from_str::<ProjectActionRequest>(raw_body)
+            .map_err(|_| "Invalid project action request.".to_string())
+            .and_then(|input| queue_project_action(store, input))
+        {
+            Ok(action) => write_json_response(
+                &mut stream,
+                202,
+                "Accepted",
+                &serde_json::json!({ "actionId": action.id }),
+            ),
+            Err(message) => write_json_response(
+                &mut stream,
+                400,
+                "Bad Request",
+                &serde_json::json!({ "message": message }),
+            ),
+        }
+        return;
+    }
     if method == "GET" {
         if let Some(action_id) = parse_action_path(path) {
             let result = store
@@ -446,6 +546,7 @@ fn handle_connection(mut stream: TcpStream, store: &BridgeStore) {
                 .unwrap_or(SessionActionResult {
                     status: "pending".into(),
                     message: "PromptForge is processing the action.".into(),
+                    outcome: None,
                 });
             write_json_response(&mut stream, 200, "OK", &result);
             return;
@@ -487,6 +588,13 @@ fn queue_action(store: &BridgeStore, input: SessionActionRequest) -> Result<Sess
     bridge.queue_action(input)
 }
 
+fn queue_project_action(store: &BridgeStore, input: ProjectActionRequest) -> Result<ProjectAction, String> {
+    let bridge = ReadModelBridge {
+        store: store.clone(),
+    };
+    bridge.queue_project_action(input)
+}
+
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() != 5 || parts[1] != "v1" || parts[2] != "session-views" {
@@ -499,7 +607,7 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
 
 fn parse_action_path(path: &str) -> Option<&str> {
     let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() != 4 || parts[1] != "v1" || parts[2] != "session-actions" {
+    if parts.len() != 4 || parts[1] != "v1" || !matches!(parts[2], "session-actions" | "project-actions") {
         return None;
     }
     validate_id(parts[3], "action id").ok()?;
@@ -553,6 +661,7 @@ mod tests {
                 views: Arc::new(Mutex::new(HashMap::new())),
                 handoff_views: Arc::new(Mutex::new(HashMap::new())),
                 actions: Arc::new(Mutex::new(VecDeque::new())),
+                project_actions: Arc::new(Mutex::new(VecDeque::new())),
                 results: Arc::new(Mutex::new(HashMap::new())),
                 next_action_id: Arc::new(AtomicU64::new(1)),
             },
@@ -606,10 +715,35 @@ mod tests {
     }
 
     #[test]
+    fn project_action_queue_accepts_only_a_safe_absolute_workspace_root() {
+        let bridge = test_bridge();
+        let action = bridge
+            .queue_project_action(ProjectActionRequest {
+                repo_root: "/Users/utku/projects/offerpath".into(),
+            })
+            .expect("project action queues");
+        assert_eq!(action.id, "project-1");
+        assert_eq!(
+            bridge
+                .take_project_action()
+                .expect("take succeeds")
+                .map(|item| item.repo_root),
+            Some("/Users/utku/projects/offerpath".into())
+        );
+        assert!(bridge
+            .queue_project_action(ProjectActionRequest { repo_root: "relative/path".into() })
+            .is_err());
+        assert!(bridge
+            .queue_project_action(ProjectActionRequest { repo_root: "/Users/utku/../etc".into() })
+            .is_err());
+        assert!(parse_action_path("/v1/project-actions/project-1").is_some());
+    }
+
+    #[test]
     fn action_completion_returns_explicit_success_or_failure() {
         let bridge = test_bridge();
         bridge
-            .complete_action("action-1".into(), true, "Checkpoint note saved.".into())
+            .complete_action("action-1".into(), true, "Checkpoint note saved.".into(), None)
             .expect("completion succeeds");
         let result = bridge
             .store
@@ -636,6 +770,7 @@ mod tests {
                 views: Arc::new(Mutex::new(HashMap::new())),
                 handoff_views: Arc::new(Mutex::new(HashMap::new())),
                 actions: Arc::new(Mutex::new(VecDeque::new())),
+                project_actions: Arc::new(Mutex::new(VecDeque::new())),
                 results: Arc::new(Mutex::new(HashMap::new())),
                 next_action_id: Arc::new(AtomicU64::new(1)),
             },

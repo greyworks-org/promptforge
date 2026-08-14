@@ -121,6 +121,29 @@ export async function getProject(projectId: string): Promise<ProjectRecord | nul
   return projects.getById(projectId);
 }
 
+/**
+ * Resolve a registered project from a workspace repository root. The path is
+ * canonicalized the same way registration canonicalizes it, so a symlinked or
+ * unnormalized workspace path still resolves to the one registered project.
+ */
+export async function getProjectByRepoPath(repoPath: string): Promise<ProjectRecord | null> {
+  let normalized: string;
+  try {
+    normalized = normalizeFolderPath(repoPath);
+  } catch {
+    return null;
+  }
+  let canonical = normalized;
+  try {
+    const meta = await invokeIpc<FsMetadata>('fs_metadata', { path: normalized });
+    if (meta.exists && meta.isDir && meta.canonicalPath !== null) canonical = meta.canonicalPath;
+  } catch {
+    // Canonicalization is unavailable; the normalized path is still comparable.
+  }
+  const { projects } = await repos();
+  return (await projects.getByRepoPath(canonical)) ?? (await projects.getByRepoPath(normalized));
+}
+
 export interface ProjectMetadataPatch {
   name?: string;
   currentMilestone?: string | null;

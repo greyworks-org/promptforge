@@ -41,5 +41,10 @@ declare module 'vscode' {
     get<T>(section: string, defaultValue: T): T;
     update(section: string, value: unknown, configurationTarget: ConfigurationTarget): Promise<void>;
   }
-  export namespace workspace { function getConfiguration(section?: string): WorkspaceConfiguration; }
+  export interface Uri { fsPath: string }
+  export interface WorkspaceFolder { uri: Uri; name: string }
+  export namespace workspace {
+    function getConfiguration(section?: string): WorkspaceConfiguration;
+    const workspaceFolders: readonly WorkspaceFolder[] | undefined;
+  }
 }

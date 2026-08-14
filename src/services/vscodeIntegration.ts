@@ -13,6 +13,7 @@ import {
 } from '../handoff/crossModelService';
 import { openCodeModelSchema, getOpenCodeModelDiscovery, type OpenCodeModel } from './opencodeModels';
 import { sessionModelSelectionSchema } from '../sessions/types';
+import { resumeCurrentProject } from './projectResume';
 
 interface ReadModelEndpoint {
   baseUrl: string;
@@ -34,6 +35,12 @@ export interface VscodeConnection {
 export type VscodeSessionAction = 'start' | 'resume' | 'checkpoint' | 'model' | 'handoff-context' | 'handoff-preview' | 'handoff-confirm';
 
 let processingVscodeAction = false;
+let processingVscodeProjectAction = false;
+
+interface VscodeProjectActionRequest {
+  id: string;
+  repoRoot: string;
+}
 
 interface VscodeSessionActionRequest {
   id: string;
@@ -226,6 +233,38 @@ export async function processVscodeSessionAction(): Promise<void> {
     }
   } finally {
     processingVscodeAction = false;
+  }
+}
+
+/**
+ * Claims one workspace-scoped resume request. PromptForge owns the decision:
+ * VS Code supplies only the repository root and renders the outcome.
+ */
+export async function processVscodeProjectAction(): Promise<void> {
+  if (processingVscodeProjectAction) return;
+  processingVscodeProjectAction = true;
+  let action: VscodeProjectActionRequest | null = null;
+  try {
+    action = await invokeIpc<VscodeProjectActionRequest | null>('vscode_take_project_action');
+    if (action === null) return;
+    const outcome = await resumeCurrentProject(action.repoRoot);
+    await invokeIpc('vscode_complete_project_action', {
+      actionId: action.id,
+      success: outcome.status !== 'failed',
+      message: outcome.message,
+      outcome,
+    });
+  } catch (error) {
+    if (action !== null) {
+      await invokeIpc('vscode_complete_project_action', {
+        actionId: action.id,
+        success: false,
+        message: error instanceof Error ? error.message : 'PromptForge could not resume this project.',
+        outcome: null,
+      });
+    }
+  } finally {
+    processingVscodeProjectAction = false;
   }
 }
 

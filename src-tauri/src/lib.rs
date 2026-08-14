@@ -58,6 +58,8 @@ pub fn run() {
             commands::vscode::vscode_publish_handoff_view,
             commands::vscode::vscode_take_session_action,
             commands::vscode::vscode_complete_session_action,
+            commands::vscode::vscode_take_project_action,
+            commands::vscode::vscode_complete_project_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PromptForge");

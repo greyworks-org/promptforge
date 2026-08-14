@@ -2,13 +2,17 @@ import * as vscode from 'vscode';
 import {
   fetchSessionView,
   parseConnection,
+  requestProjectResume,
   requestSessionAction,
+  waitForProjectResume,
   waitForSessionAction,
+  type ProjectResumeOutcome,
   type SessionAction,
   type SessionView,
   type VscodeConnection,
 } from './readModelClient';
 import { HandoffPanel } from './handoffPanel';
+import { findGitRoot } from './workspaceProject';
 
 class PanelItem extends vscode.TreeItem {
   public readonly children: PanelItem[];
@@ -162,6 +166,57 @@ class SessionStatusProvider implements vscode.TreeDataProvider<PanelItem> {
   }
 }
 
+/** PromptForge decides; this only reports the outcome and the allowed follow-up. */
+export function describeResumeOutcome(outcome: ProjectResumeOutcome): string {
+  const project = outcome.projectName ?? outcome.projectId ?? outcome.repoRoot;
+  if (outcome.status === 'executed') {
+    return `${project}: resumed in OpenCode with the current continuation${outcome.modelRef ? ` (${outcome.modelRef})` : ''}.`;
+  }
+  if (outcome.status === 'completed') {
+    return outcome.recommendation === null
+      ? `${project}: current task complete. Start a new task in PromptForge Compiler.`
+      : `${project}: current task complete. Recommended next task: ${outcome.recommendation.intent}`;
+  }
+  if (outcome.status === 'no-active-task') {
+    return outcome.recommendation === null
+      ? `${project}: no active task. Start a new task in PromptForge Compiler.`
+      : `${project}: no active task. Recommended next task: ${outcome.recommendation.intent}`;
+  }
+  if (outcome.status === 'blocked') return `${project}: blocked. ${outcome.message}`;
+  if (outcome.status === 'needs-human-review') return `${project}: needs human review. ${outcome.message}`;
+  return outcome.message;
+}
+
+async function resumeCurrentProject(): Promise<void> {
+  const connection = parseConnection(vscode.workspace.getConfiguration().get<string>('promptforge.connection', ''));
+  if (!connection) {
+    await vscode.window.showErrorMessage('Run PromptForge: Connect Session once so this workspace knows the local PromptForge endpoint.');
+    return;
+  }
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    await vscode.window.showErrorMessage('Open a folder before resuming a PromptForge project.');
+    return;
+  }
+  const repoRoot = findGitRoot(folder.uri.fsPath);
+  if (!repoRoot) {
+    await vscode.window.showErrorMessage('This workspace is not inside a Git repository.');
+    return;
+  }
+  try {
+    const actionId = await requestProjectResume(connection, repoRoot);
+    const result = await waitForProjectResume(connection, actionId);
+    const text = result.outcome ? describeResumeOutcome(result.outcome) : result.message;
+    if (result.status === 'failed') {
+      await vscode.window.showErrorMessage(text);
+      return;
+    }
+    await vscode.window.showInformationMessage(text);
+  } catch (err) {
+    await vscode.window.showErrorMessage(err instanceof Error ? err.message : 'PromptForge could not resume this project.');
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new SessionStatusProvider();
   const connectionSetting = vscode.workspace.getConfiguration().get<string>('promptforge.connection', '');
@@ -173,6 +228,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('promptforge.resumeSession', () => provider.runAction('resume')),
     vscode.commands.registerCommand('promptforge.addCheckpointNote', () => provider.runAction('checkpoint')),
     vscode.commands.registerCommand('promptforge.switchModel', () => provider.runAction('model')),
+    vscode.commands.registerCommand('promptforge.resumeCurrentProject', () => void resumeCurrentProject()),
     vscode.commands.registerCommand('promptforge.handoff', () => {
       const connection = parseConnection(vscode.workspace.getConfiguration().get<string>('promptforge.connection', ''));
       if (connection) HandoffPanel.open(connection);

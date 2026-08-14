@@ -17,7 +17,7 @@
 
 - **Current phase:** PromptForge v1 multi-model code finalization complete; feature frozen.
 - **Last validated task:** false continuation-reconciliation fix (2026-08-13) — the latest successfully observed session/semantic HEAD is the reconciliation baseline; bounded historical commits remain context only, while newer HEADs and dirty evidence remain UNVERIFIED reconciliation signals. Gates: focused TypeScript 79/79; root typecheck; production build; `git diff --check`.
-- **Current task:** continuation state is finalized and project-aware; ordinary model switching preserves recoverable repository progress without a manual checkpoint.
+- **Current task:** project intelligence is persistent and evidence-bound; the Compiler accepts short intent, task lifecycle is explicit, and VS Code resumes the current workspace project through the existing OpenCode integration.
 - **Next task:** none for v1.
 
 ## Decisions (confirmed)
@@ -52,6 +52,9 @@
 - 2026-08-07 · Architecture contract update — `target_provider` replaced with `target_model` + `agent_runtime` + `execution_profile` across both schemas (compiler-output + taskspec). Schema versions: compiler-output → 1.1.0, taskspec → 1.1.0. Four canonical execution profiles defined (deepseek-v4-pro-claude-code primary; qwen-3.8-max-qwen-code; gpt-5.6-sol-high-codex; opus-5-high-claude-code). Profiles control 10 working-style parameters (planning_depth, exploration_budget, context_reuse, reasoning_effort, test_strategy, final_validation, retry_budget, progress_verbosity, autonomy, guardrail_strength) — never task meaning. Renderers renamed: renderQwen→renderQwenCode, renderCodex→no change, renderClaude→renderClaudeCode. AGENTS.md stays shared; runtime-specific instruction files unchanged. DATA_MODEL compilations table: +target_model, +agent_runtime, +execution_profile, +profile_version; task_outcomes: used_provider→used_runtime. All 14 fixtures updated; AJV validation passes.
 - 2026-08-07 · Profile contract correction — primary profile recalibrated to measured workflow (standard/low/aggressive/high/targeted/full-gate/2/minimal/high/strict). `test_strategy` split into `test_strategy` (during implementation) + `final_validation` (at completion). Profile registry model: each profile binds (target_model × agent_runtime); compatibility validated at compile time; custom profiles supported. `profile_version` recorded in compilation metadata for historical reproducibility. No duplicated parameters across schemas/docs.
 - Phase 3 additions: five Rust fs commands (`fs_read_text`, `fs_write_text`, `fs_list_dir`, `fs_exists`, `fs_resolve_project_root`) plus a narrow pre-registration `fs_read_anchor` under `src-tauri/src/commands/fs.rs`. All scoped commands resolve the project root from the SQLite registry via `rusqlite` (bundled). No tauri-plugin-fs dependency. The `Cargo.toml` now includes `rusqlite` with the `bundled` feature. Blocklist (`src/redaction/blocklist.ts`) enforces SECURITY.md §3.1 patterns plus binary-extension detection on every scan. Consent system (`src/services/consent.ts`) categorizes files as PromptForge-owned (by header marker) vs foreign; foreign overwrites warn distinctly. Anchor re-link (`src/services/anchor.ts`) matches `project.json` → registry `projectId` at different paths; moved/renamed folders are re-associated instead of duplicated. Profile drafting (`src/services/profileDraft.ts`) reuses the existing `provider_chat` transport — no new API path. Onboarding wizard (`src/screens/OnboardingWizard.tsx`) is a separate screen; the existing in-screen "Add project" form in ProjectsScreen is preserved alongside a new "Guided setup" button.
+
+- 2026-08-14 · Project intelligence validated: migration 0011 persists one Zod-validated intelligence document per project; derivation is pure and evidence-only, so every fact carries its source artefact, repository content and repository changes stay UNVERIFIED, only PromptForge-side verification produces verified progress, and unsupported product/architecture/roadmap facts stay UNKNOWN. Bootstrap and reconciliation share one derivation: an existing record is merged and its bootstrap timestamp preserved, while facts whose evidence disappeared are dropped. The Compiler receives a bounded summary so a short intent compiles, and a typed intent overrides the recommendation. Gates: intelligence 9/9 + 6/6; TypeScript 595/595; typecheck; production build; Rust 88/88; `git diff --check`; Tauri macOS bundle.
+- 2026-08-14 · Project-aware VS Code resume validated: the loopback bridge accepts a workspace-scoped project action carrying only the repository root; PromptForge resolves the registered project from the canonical Git root, reconciles live Git state, derives a fresh ContinuationState, and executes only for an active or reconciliation-pending task. Completed, blocked and review-pending tasks never execute. The exact saved OpenCode reference is taken from the session binding and then the bound provider profile; a missing reference produces configuration required rather than a guessed model. Desktop and VS Code share the same persisted rows. Gates: resume 11/11; workspace root 2/2; extension compile; Rust bridge 5/5.
 
 ## Blockers & risks
 
@@ -135,10 +138,12 @@
 
 ## Git checkpoint
 
-- **Latest checkpoint:** `fix: prevent false continuation reconciliation` (reconciliation baseline correction and validated project-state record).
+- **Latest checkpoint:** `feat(vscode): add project-aware resume command` (persistent project intelligence plus the workspace-scoped resume command).
 - **Uncommitted changes:** none after the checkpoint commit.
 
 ## Recent history
+
+- 2026-08-14 · Project intelligence and project-aware VS Code resume — persistent per-project intelligence (migration 0011), evidence-based next-task recommendation, short-intent Compiler mode, explicit task lifecycle, and one workspace-scoped VS Code resume command.
 
 - 2026-08-13 · PromptForge v1 final product pass — persistent History terminal states, active-project repository freshness, clear context/provider/model terminology, restrained end-user UX across the main screens, and final package launch confirmation.
 - 2026-08-13 · Dynamic continuation — project-aware live repository reconciliation, persisted evidence, task lifecycle, and source→target runtime/model handoff.
