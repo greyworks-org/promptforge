@@ -20,7 +20,9 @@ pub async fn run_chat(
     reasoning_effort: Option<&str>,
 ) -> Result<ChatOutcome, ProviderFailure> {
     if model_id.trim().is_empty() {
-        return Err(ProviderFailure::config("Model ID is required — set it in Settings."));
+        return Err(ProviderFailure::config(
+            "Model ID is required — set it in Settings.",
+        ));
     }
 
     send_chat_with_options(
@@ -41,8 +43,7 @@ pub async fn run_chat(
 /// Keychain, then cache for the session lifetime.
 /// Check whether a base URL is a local/mock provider.
 fn is_local_provider(base_url: &str) -> bool {
-    base_url.starts_with("http://127.0.0.1")
-        || base_url.starts_with("http://localhost")
+    base_url.starts_with("http://127.0.0.1") || base_url.starts_with("http://localhost")
 }
 
 fn resolve_key(
@@ -106,7 +107,12 @@ pub async fn provider_chat(
     json_mode: String,
     reasoning_effort: Option<String>,
 ) -> Result<ChatOutcome, ProviderFailure> {
-    let api_key = resolve_key(state.secrets.as_ref(), &state.key_cache, &keychain_account, &base_url)?;
+    let api_key = resolve_key(
+        state.secrets.as_ref(),
+        &state.key_cache,
+        &keychain_account,
+        &base_url,
+    )?;
 
     run_chat(
         &base_url,
@@ -127,7 +133,10 @@ mod tests {
     use super::*;
 
     fn message() -> Vec<ChatMessage> {
-        vec![ChatMessage { role: "user".into(), content: "ping".into() }]
+        vec![ChatMessage {
+            role: "user".into(),
+            content: "ping".into(),
+        }]
     }
 
     #[tokio::test]

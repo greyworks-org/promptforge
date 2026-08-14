@@ -37,35 +37,75 @@ pub struct GitCommit {
 const ALLOWED_COMMANDS: &[&str] = &["log", "status", "diff", "rev-parse"];
 /// Mutating git verbs — explicitly blocked.
 const BLOCKED_VERBS: &[&str] = &[
-    "commit", "add", "rm", "mv", "reset", "stash", "checkout", "switch",
-    "restore", "rebase", "merge", "cherry-pick", "revert", "push", "fetch",
-    "pull", "tag", "branch", "clean", "gc", "prune", "clone", "init",
-    "submodule", "worktree", "bisect", "blame",
+    "commit",
+    "add",
+    "rm",
+    "mv",
+    "reset",
+    "stash",
+    "checkout",
+    "switch",
+    "restore",
+    "rebase",
+    "merge",
+    "cherry-pick",
+    "revert",
+    "push",
+    "fetch",
+    "pull",
+    "tag",
+    "branch",
+    "clean",
+    "gc",
+    "prune",
+    "clone",
+    "init",
+    "submodule",
+    "worktree",
+    "bisect",
+    "blame",
 ];
 
 fn is_safe_command(args: &[&str]) -> bool {
-    if args.is_empty() { return false; }
+    if args.is_empty() {
+        return false;
+    }
     let verb = args[0];
-    if BLOCKED_VERBS.contains(&verb) { return false; }
-    if !ALLOWED_COMMANDS.contains(&verb) { return false; }
+    if BLOCKED_VERBS.contains(&verb) {
+        return false;
+    }
+    if !ALLOWED_COMMANDS.contains(&verb) {
+        return false;
+    }
 
     // Block arguments that could escape the project repo.
     for a in args {
         // Mutating flags.
-        if *a == "--force" || *a == "-f" || *a == "--hard" { return false; }
+        if *a == "--force" || *a == "-f" || *a == "--hard" {
+            return false;
+        }
         // Filesystem-escape flags.
-        if *a == "--no-index" || *a == "--git-dir" || *a == "--work-tree" { return false; }
+        if *a == "--no-index" || *a == "--git-dir" || *a == "--work-tree" {
+            return false;
+        }
         // Short-form directory change.
-        if *a == "-C" { return false; }
+        if *a == "-C" {
+            return false;
+        }
         // Absolute paths or traversal.
-        if a.starts_with('/') || a.contains("../") { return false; }
+        if a.starts_with('/') || a.contains("../") {
+            return false;
+        }
     }
     true
 }
 
 fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
     if !is_safe_command(args) {
-        return Err(format!("git {} is not allowed (read-only metadata only)", args.join(" ")));
+        return Err(format!(
+            "git {} is not allowed (read-only metadata only)",
+            args.join(" ")
+        ));
     }
     let output = Command::new("git")
         .args(args)
@@ -78,7 +118,9 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
     }
     // Preserve leading spaces: porcelain status uses them to encode the
     // index state. Trimming them drops the first character of a path.
-    Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end()
+        .to_string())
 }
 
 /// Read-only git inspection.  Returns structured metadata only — never
@@ -90,7 +132,10 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
 /// - `.git` found in a parent directory → reject (no implicit trust)
 /// - no `.git` → graceful fallback
 #[tauri::command]
-pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<GitInspectResult, String> {
+pub fn git_inspect(
+    repo_path: String,
+    base_commit: Option<String>,
+) -> Result<GitInspectResult, String> {
     let project_root = PathBuf::from(&repo_path);
 
     // Only trust .git that lives INSIDE the project root.
@@ -135,13 +180,24 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
 
     let branch = run_git(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"]).ok();
 
-    let recent_commits = if let Some(base) = base_commit.as_ref().filter(|value| is_valid_commit_hash(value)) {
+    let recent_commits = if let Some(base) = base_commit
+        .as_ref()
+        .filter(|value| is_valid_commit_hash(value))
+    {
         let range = format!("{}..HEAD", base);
-        run_git(&repo_path, &["log", range.as_str(), "-n", "20", "--format=%H%x09%s%x09%cI"])
-            .unwrap_or_default()
+        run_git(
+            &repo_path,
+            &[
+                "log",
+                range.as_str(),
+                "-n",
+                "20",
+                "--format=%H%x09%s%x09%cI",
+            ],
+        )
+        .unwrap_or_default()
     } else {
-        run_git(&repo_path, &["log", "-n", "20", "--format=%H%x09%s%x09%cI"])
-            .unwrap_or_default()
+        run_git(&repo_path, &["log", "-n", "20", "--format=%H%x09%s%x09%cI"]).unwrap_or_default()
     }
     .lines()
     .filter_map(|line| {
@@ -161,7 +217,9 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
 
     if let Ok(status) = run_git(&repo_path, &["status", "--porcelain=v1"]) {
         for line in status.lines() {
-            if line.len() < 3 { continue; }
+            if line.len() < 3 {
+                continue;
+            }
             let idx = &line[0..2];
             let path = line[3..].trim().to_string();
             // Truncate path lists at 500 entries to bound output.
@@ -183,16 +241,26 @@ pub fn git_inspect(repo_path: String, base_commit: Option<String>) -> Result<Git
     }
 
     let diff_stat = run_git(&repo_path, &["diff", "--stat"]).unwrap_or_default();
-    let diff_source = if let Some(base) = base_commit.as_ref().filter(|value| is_valid_commit_hash(value)) {
-        let args = ["diff", base.as_str(), "HEAD", "--no-ext-diff", "--unified=20"];
+    let diff_source = if let Some(base) = base_commit
+        .as_ref()
+        .filter(|value| is_valid_commit_hash(value))
+    {
+        let args = [
+            "diff",
+            base.as_str(),
+            "HEAD",
+            "--no-ext-diff",
+            "--unified=20",
+        ];
         run_git(&repo_path, &args).unwrap_or_default()
     } else {
-        run_git(&repo_path, &["diff", "HEAD", "--no-ext-diff", "--unified=20"]).unwrap_or_default()
+        run_git(
+            &repo_path,
+            &["diff", "HEAD", "--no-ext-diff", "--unified=20"],
+        )
+        .unwrap_or_default()
     };
-    let diff = diff_source
-        .chars()
-        .take(30_000)
-        .collect();
+    let diff = diff_source.chars().take(30_000).collect();
 
     Ok(GitInspectResult {
         is_repo: true,
@@ -270,7 +338,11 @@ mod tests {
     #[test]
     fn own_git_repo_detected() {
         let dir = tmp_git_dir("own-repo");
-        Command::new("git").args(["init"]).current_dir(&dir).status().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
         let result = git_inspect(dir.to_string_lossy().into_owned(), None).unwrap();
         assert!(result.is_repo);
         std::fs::remove_dir_all(&dir).ok();
@@ -279,15 +351,48 @@ mod tests {
     #[test]
     fn preserves_modified_path_prefix_from_porcelain_status() {
         let dir = tmp_git_dir("path-preservation");
-        Command::new("git").args(["init"]).current_dir(&dir).status().unwrap();
-        Command::new("git").args(["-c", "user.name=PromptForge", "-c", "user.email=test@example.com", "add", "."])
-            .current_dir(&dir).status().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=PromptForge",
+                "-c",
+                "user.email=test@example.com",
+                "add",
+                ".",
+            ])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
         std::fs::create_dir_all(dir.join("App")).unwrap();
         std::fs::write(dir.join("App/AppModel.swift"), "struct AppModel {}\n").unwrap();
-        Command::new("git").args(["add", "App/AppModel.swift"]).current_dir(&dir).status().unwrap();
-        Command::new("git").args(["-c", "user.name=PromptForge", "-c", "user.email=test@example.com", "commit", "-m", "baseline"])
-            .current_dir(&dir).status().unwrap();
-        std::fs::write(dir.join("App/AppModel.swift"), "struct AppModel { let ready = true }\n").unwrap();
+        Command::new("git")
+            .args(["add", "App/AppModel.swift"])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=PromptForge",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        std::fs::write(
+            dir.join("App/AppModel.swift"),
+            "struct AppModel { let ready = true }\n",
+        )
+        .unwrap();
 
         let result = git_inspect(dir.to_string_lossy().into_owned(), None).unwrap();
         assert_eq!(result.unstaged, vec!["App/AppModel.swift"]);
@@ -308,11 +413,18 @@ mod tests {
         // Without explicit trust, this is rejected. Monorepo trust requires
         // explicit workspace binding, not directory ancestry.
         let repo = tmp_git_dir("mono-reject");
-        Command::new("git").args(["init"]).current_dir(&repo).status().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
         let child = repo.join("apps").join("mobile");
         std::fs::create_dir_all(&child).unwrap();
         let result = git_inspect(child.to_string_lossy().into_owned(), None).unwrap();
-        assert!(!result.is_repo, "monorepo child without own .git must be rejected");
+        assert!(
+            !result.is_repo,
+            "monorepo child without own .git must be rejected"
+        );
         std::fs::remove_dir_all(&repo).ok();
     }
 
@@ -321,7 +433,11 @@ mod tests {
         // Simulate any non-home parent: /tmp/repo/.git, /tmp/repo/child.
         // Child has no .git → must be rejected regardless of parent identity.
         let parent = tmp_git_dir("arb-parent");
-        Command::new("git").args(["init"]).current_dir(&parent).status().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&parent)
+            .status()
+            .unwrap();
         let child = parent.join("child-project");
         std::fs::create_dir_all(&child).unwrap();
         let result = git_inspect(child.to_string_lossy().into_owned(), None).unwrap();
@@ -333,7 +449,11 @@ mod tests {
     fn submodule_with_gitfile_allowed() {
         // Simulate a git worktree: child has .git file, parent is a real repo.
         let repo = tmp_git_dir("worktree-main");
-        Command::new("git").args(["init"]).current_dir(&repo).status().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
         // Create a linked worktree directory with a .git file.
         let wt = repo.join("wt");
         std::fs::create_dir_all(&wt).unwrap();
@@ -341,11 +461,16 @@ mod tests {
         std::fs::create_dir_all(&gitdir_path).unwrap();
         // Minimal valid gitdir: needs HEAD + commondir.
         std::fs::write(gitdir_path.join("HEAD"), "ref: refs/heads/main").unwrap();
-        std::fs::write(gitdir_path.join("commondir"), format!("{}/.git\n", repo.to_string_lossy())).unwrap();
+        std::fs::write(
+            gitdir_path.join("commondir"),
+            format!("{}/.git\n", repo.to_string_lossy()),
+        )
+        .unwrap();
         std::fs::write(
             wt.join(".git"),
             format!("gitdir: {}\n", gitdir_path.to_string_lossy()),
-        ).unwrap();
+        )
+        .unwrap();
         let result = git_inspect(wt.to_string_lossy().into_owned(), None).unwrap();
         assert!(result.is_repo, "worktree with .git file should be a repo");
         std::fs::remove_dir_all(&repo).ok();

@@ -10,11 +10,15 @@ pub fn set_secret(secrets: &dyn SecretStore, account: &str, secret: &str) -> Res
     if account.is_empty() || secret.is_empty() {
         return Err("Keychain error: account and secret are required.".to_string());
     }
-    secrets.set(account, secret).map_err(|e| format!("Keychain error: {e}"))
+    secrets
+        .set(account, secret)
+        .map_err(|e| format!("Keychain error: {e}"))
 }
 
 pub fn delete_secret(secrets: &dyn SecretStore, account: &str) -> Result<bool, String> {
-    secrets.delete(account).map_err(|e| format!("Keychain error: {e}"))
+    secrets
+        .delete(account)
+        .map_err(|e| format!("Keychain error: {e}"))
 }
 
 /// Presence check — checks the in-memory cache first, falls back to
@@ -44,7 +48,11 @@ pub fn has_secret(
 }
 
 #[tauri::command]
-pub fn keychain_set(state: State<'_, AppState>, account: String, secret: String) -> Result<(), String> {
+pub fn keychain_set(
+    state: State<'_, AppState>,
+    account: String,
+    secret: String,
+) -> Result<(), String> {
     // Update the in-memory cache.
     if let Ok(mut cache) = state.key_cache.lock() {
         cache.insert(account.clone(), secret.clone());

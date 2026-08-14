@@ -76,7 +76,10 @@ pub fn open_vscode(
                 format!("VS Code could not be opened: {}", detail)
             });
         }
-        return Ok(VscodeLaunchResult { project_root: root_text, application: "Visual Studio Code".into() });
+        return Ok(VscodeLaunchResult {
+            project_root: root_text,
+            application: "Visual Studio Code".into(),
+        });
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -197,7 +200,16 @@ impl ReadModelBridge {
     fn queue_action(&self, input: SessionActionRequest) -> Result<SessionAction, String> {
         validate_id(&input.project_id, "project id")?;
         validate_id(&input.session_id, "session id")?;
-        if !matches!(input.action.as_str(), "start" | "resume" | "checkpoint" | "model" | "handoff-context" | "handoff-preview" | "handoff-confirm") {
+        if !matches!(
+            input.action.as_str(),
+            "start"
+                | "resume"
+                | "checkpoint"
+                | "model"
+                | "handoff-context"
+                | "handoff-preview"
+                | "handoff-confirm"
+        ) {
             return Err("Unsupported VS Code session action.".into());
         }
         if input.note.as_ref().is_some_and(|note| note.len() > 4000) {
@@ -311,7 +323,9 @@ pub fn optional_bridge() -> (Option<ReadModelBridge>, Option<String>) {
     optional_bridge_from(ReadModelBridge::new())
 }
 
-fn optional_bridge_from(result: Result<ReadModelBridge, String>) -> (Option<ReadModelBridge>, Option<String>) {
+fn optional_bridge_from(
+    result: Result<ReadModelBridge, String>,
+) -> (Option<ReadModelBridge>, Option<String>) {
     match result {
         Ok(bridge) => (Some(bridge), None),
         Err(error) => {
@@ -338,9 +352,7 @@ pub fn vscode_read_model_endpoint(
 }
 
 #[tauri::command]
-pub fn vscode_bridge_status(
-    state: State<'_, crate::AppState>,
-) -> VscodeBridgeStatus {
+pub fn vscode_bridge_status(state: State<'_, crate::AppState>) -> VscodeBridgeStatus {
     VscodeBridgeStatus {
         available: state.vscode_bridge.is_some(),
         message: state.vscode_bridge_error.clone(),
@@ -368,7 +380,11 @@ pub fn vscode_publish_handoff_view(
     session_id: String,
     view: Value,
 ) -> Result<(), String> {
-    bridge(&state)?.publish_handoff(PublishHandoffView { project_id, session_id, view })
+    bridge(&state)?.publish_handoff(PublishHandoffView {
+        project_id,
+        session_id,
+        view,
+    })
 }
 
 #[tauri::command]
@@ -588,7 +604,10 @@ fn queue_action(store: &BridgeStore, input: SessionActionRequest) -> Result<Sess
     bridge.queue_action(input)
 }
 
-fn queue_project_action(store: &BridgeStore, input: ProjectActionRequest) -> Result<ProjectAction, String> {
+fn queue_project_action(
+    store: &BridgeStore,
+    input: ProjectActionRequest,
+) -> Result<ProjectAction, String> {
     let bridge = ReadModelBridge {
         store: store.clone(),
     };
@@ -607,7 +626,10 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
 
 fn parse_action_path(path: &str) -> Option<&str> {
     let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() != 4 || parts[1] != "v1" || !matches!(parts[2], "session-actions" | "project-actions") {
+    if parts.len() != 4
+        || parts[1] != "v1"
+        || !matches!(parts[2], "session-actions" | "project-actions")
+    {
         return None;
     }
     validate_id(parts[3], "action id").ok()?;
@@ -731,10 +753,14 @@ mod tests {
             Some("/Users/utku/projects/offerpath".into())
         );
         assert!(bridge
-            .queue_project_action(ProjectActionRequest { repo_root: "relative/path".into() })
+            .queue_project_action(ProjectActionRequest {
+                repo_root: "relative/path".into()
+            })
             .is_err());
         assert!(bridge
-            .queue_project_action(ProjectActionRequest { repo_root: "/Users/utku/../etc".into() })
+            .queue_project_action(ProjectActionRequest {
+                repo_root: "/Users/utku/../etc".into()
+            })
             .is_err());
         assert!(parse_action_path("/v1/project-actions/project-1").is_some());
     }
@@ -743,7 +769,12 @@ mod tests {
     fn action_completion_returns_explicit_success_or_failure() {
         let bridge = test_bridge();
         bridge
-            .complete_action("action-1".into(), true, "Checkpoint note saved.".into(), None)
+            .complete_action(
+                "action-1".into(),
+                true,
+                "Checkpoint note saved.".into(),
+                None,
+            )
             .expect("completion succeeds");
         let result = bridge
             .store
@@ -757,9 +788,13 @@ mod tests {
 
     #[test]
     fn bridge_startup_failure_is_degraded_without_panicking() {
-        let (bridge, error) = optional_bridge_from(Err("Operation not permitted (os error 1)".into()));
+        let (bridge, error) =
+            optional_bridge_from(Err("Operation not permitted (os error 1)".into()));
         assert!(bridge.is_none());
-        assert_eq!(error.as_deref(), Some("Operation not permitted (os error 1)"));
+        assert_eq!(
+            error.as_deref(),
+            Some("Operation not permitted (os error 1)")
+        );
     }
 
     fn test_bridge() -> ReadModelBridge {

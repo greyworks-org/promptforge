@@ -29,7 +29,9 @@ pub struct KeyringStore;
 impl SecretStore for KeyringStore {
     fn set(&self, account: &str, secret: &str) -> Result<(), KeychainError> {
         let entry = keyring::Entry::new(SERVICE, account).map_err(|_| KeychainError::Backend)?;
-        entry.set_password(secret).map_err(|_| KeychainError::Operation)
+        entry
+            .set_password(secret)
+            .map_err(|_| KeychainError::Operation)
     }
 
     fn get(&self, account: &str) -> Result<Option<String>, KeychainError> {
@@ -97,11 +99,17 @@ mod tests {
         assert_eq!(store.get("provider/default").unwrap(), None);
 
         store.set("provider/default", "sk-test-123").unwrap();
-        assert_eq!(store.get("provider/default").unwrap(), Some("sk-test-123".to_string()));
+        assert_eq!(
+            store.get("provider/default").unwrap(),
+            Some("sk-test-123".to_string())
+        );
 
         // Replace overwrites.
         store.set("provider/default", "sk-test-456").unwrap();
-        assert_eq!(store.get("provider/default").unwrap(), Some("sk-test-456".to_string()));
+        assert_eq!(
+            store.get("provider/default").unwrap(),
+            Some("sk-test-456".to_string())
+        );
 
         assert!(store.delete("provider/default").unwrap());
         assert_eq!(store.get("provider/default").unwrap(), None);

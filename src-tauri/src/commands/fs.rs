@@ -9,7 +9,10 @@ use tauri::Manager;
 /// Resolve a `projectId` to its canonical `repo_path` by querying the
 /// central SQLite registry.  The frontend must not supply an arbitrary root;
 /// every scoped fs command goes through this function.
-pub(crate) fn resolve_project_root(app_handle: &tauri::AppHandle, project_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_project_root(
+    app_handle: &tauri::AppHandle,
+    project_id: &str,
+) -> Result<PathBuf, String> {
     let db_path = app_handle
         .path()
         .app_data_dir()
@@ -198,20 +201,18 @@ fn resolve_scoped(project_root: &Path, target: &str) -> Result<PathBuf, String> 
         if ancestor.exists() || ancestor == project_root {
             break;
         }
-        tail.push(ancestor.file_name().ok_or_else(|| {
-            format!("Path has no filename component: {}", target)
-        })?);
-        ancestor = ancestor.parent().ok_or_else(|| {
-            format!("Path escapes filesystem root: {}", target)
-        })?;
+        tail.push(
+            ancestor
+                .file_name()
+                .ok_or_else(|| format!("Path has no filename component: {}", target))?,
+        );
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| format!("Path escapes filesystem root: {}", target))?;
     }
 
-    let canonical_ancestor = std::fs::canonicalize(ancestor).map_err(|e| {
-        format!(
-            "Cannot resolve path '{}' under project root: {}",
-            target, e
-        )
-    })?;
+    let canonical_ancestor = std::fs::canonicalize(ancestor)
+        .map_err(|e| format!("Cannot resolve path '{}' under project root: {}", target, e))?;
 
     check_containment(project_root, &canonical_ancestor, target)?;
 
@@ -256,7 +257,10 @@ pub struct DirEntry {
 pub fn fs_read_anchor(path: String) -> Result<Option<String>, String> {
     let p = PathBuf::from(&path);
     // Restrict: must be named project.json under a .promptforge directory.
-    let filename = p.file_name().map(|f| f.to_string_lossy()).unwrap_or_default();
+    let filename = p
+        .file_name()
+        .map(|f| f.to_string_lossy())
+        .unwrap_or_default();
     if filename != "project.json" {
         return Err("fs_read_anchor can only read project.json files.".into());
     }
@@ -272,8 +276,8 @@ pub fn fs_read_anchor(path: String) -> Result<Option<String>, String> {
     if !p.exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&p)
-        .map_err(|e| format!("Could not read anchor: {}", e))?;
+    let content =
+        std::fs::read_to_string(&p).map_err(|e| format!("Could not read anchor: {}", e))?;
     Ok(Some(content))
 }
 
@@ -351,8 +355,8 @@ pub fn fs_read_text(
 ) -> Result<String, String> {
     let root = resolve_project_root(&app, &project_id)?;
     let resolved = resolve_scoped(&root, &path)?;
-    let content =
-        std::fs::read_to_string(&resolved).map_err(|e| format!("Could not read {}: {}", path, e))?;
+    let content = std::fs::read_to_string(&resolved)
+        .map_err(|e| format!("Could not read {}: {}", path, e))?;
     Ok(content)
 }
 
@@ -379,15 +383,10 @@ pub fn fs_write_text(
     }
 
     if let Some(parent) = resolved.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Could not create parent directories for {}: {}",
-                path, e
-            )
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not create parent directories for {}: {}", path, e))?;
     }
-    std::fs::write(&resolved, &content)
-        .map_err(|e| format!("Could not write {}: {}", path, e))?;
+    std::fs::write(&resolved, &content).map_err(|e| format!("Could not write {}: {}", path, e))?;
     Ok(())
 }
 
@@ -412,8 +411,7 @@ pub fn fs_list_dir(
     let read = std::fs::read_dir(&resolved)
         .map_err(|e| format!("Could not read directory {}: {}", path, e))?;
     for entry in read {
-        let entry =
-            entry.map_err(|e| format!("Error reading entry in {}: {}", path, e))?;
+        let entry = entry.map_err(|e| format!("Error reading entry in {}: {}", path, e))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let md = entry
             .metadata()
@@ -430,11 +428,7 @@ pub fn fs_list_dir(
 
 /// Check whether a path exists, scoped to a registered project.
 #[tauri::command]
-pub fn fs_exists(
-    app: tauri::AppHandle,
-    project_id: String,
-    path: String,
-) -> Result<bool, String> {
+pub fn fs_exists(app: tauri::AppHandle, project_id: String, path: String) -> Result<bool, String> {
     let root = resolve_project_root(&app, &project_id)?;
     if path.is_empty() {
         return Ok(true);
@@ -453,11 +447,7 @@ mod tests {
     use std::os::unix;
 
     fn unique_temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "pf-fs-{}-{}",
-            std::process::id(),
-            name
-        ));
+        let dir = std::env::temp_dir().join(format!("pf-fs-{}-{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir

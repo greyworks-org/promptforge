@@ -1,9 +1,9 @@
+use serde::Serialize;
 use std::env;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,19 +47,27 @@ fn runtime_binary(runtime: &str) -> Option<&'static str> {
 }
 
 fn is_executable_file(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else { return false };
-    if !metadata.is_file() { return false; }
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         return metadata.permissions().mode() & 0o111 != 0;
     }
     #[cfg(not(unix))]
-    { true }
+    {
+        true
+    }
 }
 
 fn user_local_runtime_path(runtime: &str, home: Option<&Path>) -> Option<PathBuf> {
-    if runtime != "opencode" { return None; }
+    if runtime != "opencode" {
+        return None;
+    }
     Some(home?.join(".opencode").join("bin").join("opencode"))
 }
 
@@ -86,14 +94,20 @@ fn resolve_runtime_executable(
     if let Some(path_env) = path_env {
         for directory in env::split_paths(path_env).filter(|path| !path.as_os_str().is_empty()) {
             let candidate = directory.join(binary);
-            if is_executable_file(&candidate) { return Some(candidate); }
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
         }
     }
     if let Some(candidate) = user_local_runtime_path(runtime, home) {
-        if is_executable_file(&candidate) { return Some(candidate); }
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
     }
     for candidate in standard_runtime_paths(runtime).iter().map(PathBuf::from) {
-        if is_executable_file(&candidate) { return Some(candidate); }
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
     }
     Some(PathBuf::from(binary))
 }
@@ -127,21 +141,29 @@ fn runtime_status_with_environment(
     path_env: Option<&OsStr>,
     home: Option<&Path>,
 ) -> Result<RuntimeStatus, String> {
-    let binary = runtime_binary(&runtime)
-        .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
+    let binary = runtime_binary(&runtime).ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let (supports_resume, supports_model_routing, capabilities) = runtime_capabilities(&runtime);
     let executable = resolve_runtime_executable(&runtime, path_env, home)
         .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let mut version_command = Command::new(&executable);
     version_command.arg("--version");
     match path_env {
-        Some(path) => { version_command.env("PATH", path); }
-        None => { version_command.env_remove("PATH"); }
+        Some(path) => {
+            version_command.env("PATH", path);
+        }
+        None => {
+            version_command.env_remove("PATH");
+        }
     }
     match version_command.output() {
         Ok(output) if output.status.success() => {
             let text = String::from_utf8_lossy(&output.stdout);
-            let version = text.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(String::from);
+            let version = text
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(String::from);
             Ok(RuntimeStatus {
                 runtime,
                 binary: binary.into(),
@@ -223,15 +245,26 @@ fn strip_ansi(value: &str) -> String {
 fn parse_model_refs(output: &str) -> Vec<String> {
     let mut refs = Vec::new();
     for line in strip_ansi(output).lines() {
-        let Some(candidate) = line.split_whitespace().next() else { continue };
-        if !candidate.contains('/') || !valid_runtime_value(candidate, 256) { continue }
-        if refs.iter().any(|model_ref| model_ref == candidate) { continue }
+        let Some(candidate) = line.split_whitespace().next() else {
+            continue;
+        };
+        if !candidate.contains('/') || !valid_runtime_value(candidate, 256) {
+            continue;
+        }
+        if refs.iter().any(|model_ref| model_ref == candidate) {
+            continue;
+        }
         refs.push(candidate.to_string());
     }
     refs
 }
 
-fn model_from_ref(model_ref: &str, available: bool, configured: bool, availability: &str) -> Option<OpenCodeModel> {
+fn model_from_ref(
+    model_ref: &str,
+    available: bool,
+    configured: bool,
+    availability: &str,
+) -> Option<OpenCodeModel> {
     let (provider_id, model_id) = model_ref.split_once('/')?;
     if provider_id.is_empty() || model_id.is_empty() || !valid_runtime_value(model_ref, 256) {
         return None;
@@ -251,7 +284,9 @@ fn model_from_ref(model_ref: &str, available: bool, configured: bool, availabili
 fn extract_model_ref(config: &str) -> Option<String> {
     for line in config.lines() {
         let trimmed = line.trim();
-        let Some(key_start) = trimmed.find("\"model\"") else { continue };
+        let Some(key_start) = trimmed.find("\"model\"") else {
+            continue;
+        };
         let rest = &trimmed[key_start + "\"model\"".len()..];
         let rest = rest.trim_start();
         let rest = rest.strip_prefix(':')?.trim_start();
@@ -272,7 +307,11 @@ fn configured_model_ref(project_root: &Path) -> Option<String> {
     ];
     if let Ok(config_path) = env::var("OPENCODE_CONFIG") {
         let path = PathBuf::from(config_path);
-        paths.push(if path.is_absolute() { path } else { project_root.join(path) });
+        paths.push(if path.is_absolute() {
+            path
+        } else {
+            project_root.join(path)
+        });
     }
     let config_home = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -308,24 +347,34 @@ pub fn opencode_models(project_root: String) -> Result<OpenCodeModelDiscovery, S
     let configured = configured_model_ref(&root);
     let path_env = env::var_os("PATH");
     let home = env::var_os("HOME");
-    let executable = resolve_runtime_executable("opencode", path_env.as_deref(), home.as_deref().map(Path::new))
-        .ok_or_else(|| "Unknown runtime: opencode".to_string())?;
+    let executable = resolve_runtime_executable(
+        "opencode",
+        path_env.as_deref(),
+        home.as_deref().map(Path::new),
+    )
+    .ok_or_else(|| "Unknown runtime: opencode".to_string())?;
     let command = Command::new(executable)
         .arg("models")
         .current_dir(&root)
         .output();
     let (refs, command_succeeded) = match command {
-        Ok(output) => (parse_model_refs(&String::from_utf8_lossy(&output.stdout)), output.status.success()),
+        Ok(output) => (
+            parse_model_refs(&String::from_utf8_lossy(&output.stdout)),
+            output.status.success(),
+        ),
         Err(_) => (Vec::new(), false),
     };
 
-    let mut models: Vec<OpenCodeModel> = refs.iter()
-        .filter_map(|model_ref| model_from_ref(
-            model_ref,
-            true,
-            configured.as_deref() == Some(model_ref.as_str()),
-            "available",
-        ))
+    let mut models: Vec<OpenCodeModel> = refs
+        .iter()
+        .filter_map(|model_ref| {
+            model_from_ref(
+                model_ref,
+                true,
+                configured.as_deref() == Some(model_ref.as_str()),
+                "available",
+            )
+        })
         .collect();
     if let Some(configured_ref) = configured.as_deref() {
         if !models.iter().any(|model| model.model_ref == configured_ref) {
@@ -345,7 +394,9 @@ pub fn opencode_models(project_root: String) -> Result<OpenCodeModelDiscovery, S
     let warning = if source == "opencode-cli" {
         None
     } else if configured.is_some() {
-        Some("OpenCode model enumeration was unavailable; showing the configured model only.".into())
+        Some(
+            "OpenCode model enumeration was unavailable; showing the configured model only.".into(),
+        )
     } else {
         Some("OpenCode model enumeration was unavailable and no configured model was found.".into())
     };
@@ -362,13 +413,17 @@ fn valid_runtime_value(value: &str, max: usize) -> bool {
     !value.is_empty()
         && value.len() <= max
         && !value.contains("..")
-        && value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':'))
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':'))
 }
 
 fn valid_session_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
 }
 
 fn is_git_repository(root: &Path) -> bool {
@@ -379,7 +434,9 @@ fn is_git_repository(root: &Path) -> bool {
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(root)
         .output()
-        .map(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true")
+        .map(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+        })
         .unwrap_or(false)
 }
 
@@ -485,7 +542,9 @@ end run
         .output()
         .map_err(|_| "The relevant visual window could not be identified.".to_string())?;
     if !output.status.success() {
-        return Err("The relevant visual window could not be identified or is not permissioned.".into());
+        return Err(
+            "The relevant visual window could not be identified or is not permissioned.".into(),
+        );
     }
     let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let mut parts = value.split('\t');
@@ -516,7 +575,12 @@ pub fn run_visual_review(
     if instruction.trim().is_empty() || instruction.len() > 10_000 {
         return Err("Visual review instruction is invalid.".into());
     }
-    if criteria.is_empty() || criteria.len() > 20 || criteria.iter().any(|item| item.is_empty() || item.len() > 500) {
+    if criteria.is_empty()
+        || criteria.len() > 20
+        || criteria
+            .iter()
+            .any(|item| item.is_empty() || item.len() > 500)
+    {
         return Err("Visual review criteria are invalid.".into());
     }
     if target.as_ref().is_some_and(|value| value.len() > 200) {
@@ -588,9 +652,18 @@ fn launch_runtime_at_root(
     if !cwd.is_dir() {
         return Err(format!("Not a directory: {}", project_root));
     }
-    let args = runtime_args(&runtime, resume, external_session_id, model_ref, continuation_prompt)?;
+    let args = runtime_args(
+        &runtime,
+        resume,
+        external_session_id,
+        model_ref,
+        continuation_prompt,
+    )?;
     if runtime == "opencode" && !is_git_repository(&cwd) {
-        return Err(format!("OpenCode launch requires a Git repository: {}", project_root));
+        return Err(format!(
+            "OpenCode launch requires a Git repository: {}",
+            project_root
+        ));
     }
     if project_id.is_empty() {
         return Err("OpenCode launch requires a registered project id.".into());
@@ -598,8 +671,12 @@ fn launch_runtime_at_root(
     let binary = runtime_binary(&runtime).ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let path_env = env::var_os("PATH");
     let home = env::var_os("HOME");
-    let executable = resolve_runtime_executable(&runtime, path_env.as_deref(), home.as_deref().map(Path::new))
-        .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
+    let executable = resolve_runtime_executable(
+        &runtime,
+        path_env.as_deref(),
+        home.as_deref().map(Path::new),
+    )
+    .ok_or_else(|| format!("Unknown runtime: {}", runtime))?;
     let mut command = Command::new(executable);
     command.current_dir(&cwd);
     command.args(args);
@@ -609,8 +686,16 @@ fn launch_runtime_at_root(
         .spawn()
         .map_err(|error| format!("Could not launch {}: {}", binary, error))?;
     let pid = child.id();
-    match child.try_wait().map_err(|error| format!("Could not verify {} launch: {}", binary, error))? {
-        None => Ok(RuntimeLaunchResult { started: true, pid: Some(pid), exit_code: None, stderr: None }),
+    match child
+        .try_wait()
+        .map_err(|error| format!("Could not verify {} launch: {}", binary, error))?
+    {
+        None => Ok(RuntimeLaunchResult {
+            started: true,
+            pid: Some(pid),
+            exit_code: None,
+            stderr: None,
+        }),
         Some(status) => {
             let stderr = child.stderr.as_mut().and_then(|pipe| {
                 let mut text = String::new();
@@ -682,7 +767,12 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        std::env::temp_dir().join(format!("promptforge-{}-{}-{}", label, std::process::id(), nonce))
+        std::env::temp_dir().join(format!(
+            "promptforge-{}-{}-{}",
+            label,
+            std::process::id(),
+            nonce
+        ))
     }
 
     fn write_executable(path: &Path) {
@@ -700,22 +790,37 @@ mod tests {
     #[test]
     fn parses_plain_and_ansi_model_refs_without_duplicates() {
         let refs = parse_model_refs("\u{1b}[32mopenrouter/deepseek/deepseek-v4-pro\u{1b}[0m\nopenai/gpt-5.6\nopenai/gpt-5.6");
-        assert_eq!(refs, vec![
-            "openrouter/deepseek/deepseek-v4-pro".to_string(),
-            "openai/gpt-5.6".to_string(),
-        ]);
+        assert_eq!(
+            refs,
+            vec![
+                "openrouter/deepseek/deepseek-v4-pro".to_string(),
+                "openai/gpt-5.6".to_string(),
+            ]
+        );
     }
 
     #[test]
     fn extracts_only_the_model_setting_from_jsonc() {
         let config = r#"{ "provider": { "openrouter": { "apiKey": "must-not-be-read" } }, "model": "openrouter/deepseek/deepseek-v4-pro" }"#;
-        assert_eq!(extract_model_ref(config), Some("openrouter/deepseek/deepseek-v4-pro".into()));
-        assert_eq!(extract_model_ref("\"model\": \"openrouter/deepseek/deepseek-v4-pro\","), Some("openrouter/deepseek/deepseek-v4-pro".into()));
+        assert_eq!(
+            extract_model_ref(config),
+            Some("openrouter/deepseek/deepseek-v4-pro".into())
+        );
+        assert_eq!(
+            extract_model_ref("\"model\": \"openrouter/deepseek/deepseek-v4-pro\","),
+            Some("openrouter/deepseek/deepseek-v4-pro".into())
+        );
     }
 
     #[test]
     fn model_ref_splits_provider_from_nested_model_id() {
-        let model = model_from_ref("openrouter/deepseek/deepseek-v4-pro", true, true, "available").unwrap();
+        let model = model_from_ref(
+            "openrouter/deepseek/deepseek-v4-pro",
+            true,
+            true,
+            "available",
+        )
+        .unwrap();
         assert_eq!(model.provider_id, "openrouter");
         assert_eq!(model.model_id, "deepseek/deepseek-v4-pro");
     }
@@ -774,7 +879,9 @@ mod tests {
         assert_eq!(status.runtime, "opencode");
         assert!(status.supports_resume);
         assert!(status.supports_model_routing);
-        assert!(status.capabilities.contains(&"structured-run-events".into()));
+        assert!(status
+            .capabilities
+            .contains(&"structured-run-events".into()));
     }
 
     #[test]
@@ -783,7 +890,12 @@ mod tests {
         let executable = root.join("bin/opencode");
         write_executable(&executable);
 
-        let status = runtime_status_with_environment("opencode".into(), Some(root.join("bin").as_os_str()), None).unwrap();
+        let status = runtime_status_with_environment(
+            "opencode".into(),
+            Some(root.join("bin").as_os_str()),
+            None,
+        )
+        .unwrap();
 
         assert!(status.installed);
         assert_eq!(status.version.as_deref(), Some("OpenCode 1.15.10"));
@@ -796,7 +908,12 @@ mod tests {
         let executable = home.join(".opencode/bin/opencode");
         write_executable(&executable);
 
-        let status = runtime_status_with_environment("opencode".into(), Some(Path::new("/path-without-opencode").as_os_str()), Some(&home)).unwrap();
+        let status = runtime_status_with_environment(
+            "opencode".into(),
+            Some(Path::new("/path-without-opencode").as_os_str()),
+            Some(&home),
+        )
+        .unwrap();
 
         assert!(status.installed);
         assert_eq!(status.version.as_deref(), Some("OpenCode 1.15.10"));
@@ -807,7 +924,12 @@ mod tests {
     fn missing_opencode_remains_not_detected() {
         let home = test_root("missing");
         std::fs::create_dir_all(&home).unwrap();
-        let status = runtime_status_with_environment("opencode".into(), Some(Path::new("/path-without-opencode").as_os_str()), Some(&home)).unwrap();
+        let status = runtime_status_with_environment(
+            "opencode".into(),
+            Some(Path::new("/path-without-opencode").as_os_str()),
+            Some(&home),
+        )
+        .unwrap();
 
         assert!(!status.installed);
         assert!(!status.can_launch);
@@ -852,7 +974,8 @@ mod tests {
             Some("session; rm -rf /".into()),
             None,
             None,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err.contains("Unsafe OpenCode session"));
     }
 
@@ -866,24 +989,57 @@ mod tests {
             None,
             Some("provider/model --danger".into()),
             None,
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert!(err.contains("Unsafe OpenCode model"));
     }
 
     #[test]
     fn runtime_args_support_start_resume_and_model_routing() {
-        assert_eq!(runtime_args("opencode", false, None, None, None).unwrap(), Vec::<String>::new());
-        assert_eq!(runtime_args("opencode", true, None, None, None).unwrap(), vec!["--continue".to_string()]);
-        assert_eq!(runtime_args("opencode", true, Some("ses_123".into()), Some("anthropic/claude-sonnet".into()), None).unwrap(), vec![
-            "--session".to_string(), "ses_123".to_string(), "--model".to_string(), "anthropic/claude-sonnet".to_string(),
-        ]);
+        assert_eq!(
+            runtime_args("opencode", false, None, None, None).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            runtime_args("opencode", true, None, None, None).unwrap(),
+            vec!["--continue".to_string()]
+        );
+        assert_eq!(
+            runtime_args(
+                "opencode",
+                true,
+                Some("ses_123".into()),
+                Some("anthropic/claude-sonnet".into()),
+                None
+            )
+            .unwrap(),
+            vec![
+                "--session".to_string(),
+                "ses_123".to_string(),
+                "--model".to_string(),
+                "anthropic/claude-sonnet".to_string(),
+            ]
+        );
     }
 
     #[test]
     fn runtime_args_support_optional_continuation_prompt() {
-        assert_eq!(runtime_args("opencode", false, None, Some("provider/model".into()), Some("Continue this task.".into())).unwrap(), vec![
-            "--model".to_string(), "provider/model".to_string(), "--prompt".to_string(), "Continue this task.".to_string(),
-        ]);
+        assert_eq!(
+            runtime_args(
+                "opencode",
+                false,
+                None,
+                Some("provider/model".into()),
+                Some("Continue this task.".into())
+            )
+            .unwrap(),
+            vec![
+                "--model".to_string(),
+                "provider/model".to_string(),
+                "--prompt".to_string(),
+                "Continue this task.".to_string(),
+            ]
+        );
     }
 
     #[test]

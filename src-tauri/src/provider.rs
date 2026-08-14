@@ -11,16 +11,28 @@ pub struct ProviderFailure {
 
 impl ProviderFailure {
     pub fn config(message: impl Into<String>) -> Self {
-        Self { class: "config".into(), message: message.into() }
+        Self {
+            class: "config".into(),
+            message: message.into(),
+        }
     }
     pub fn auth(message: impl Into<String>) -> Self {
-        Self { class: "auth".into(), message: message.into() }
+        Self {
+            class: "auth".into(),
+            message: message.into(),
+        }
     }
     pub fn network(message: impl Into<String>) -> Self {
-        Self { class: "network".into(), message: message.into() }
+        Self {
+            class: "network".into(),
+            message: message.into(),
+        }
     }
     pub fn http_api(message: impl Into<String>) -> Self {
-        Self { class: "http_api".into(), message: message.into() }
+        Self {
+            class: "http_api".into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -64,7 +76,10 @@ pub fn completions_url(base: &str) -> String {
 fn is_openai_endpoint(base: &str) -> bool {
     url::Url::parse(base)
         .ok()
-        .and_then(|url| url.host_str().map(|host| host.eq_ignore_ascii_case("api.openai.com")))
+        .and_then(|url| {
+            url.host_str()
+                .map(|host| host.eq_ignore_ascii_case("api.openai.com"))
+        })
         .unwrap_or(false)
 }
 
@@ -78,7 +93,15 @@ pub fn build_body(
     max_tokens: u32,
     json_mode_on: bool,
 ) -> serde_json::Value {
-    build_body_for_endpoint(model, messages, temperature, max_tokens, json_mode_on, false, None)
+    build_body_for_endpoint(
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        json_mode_on,
+        false,
+        None,
+    )
 }
 
 fn build_body_for_endpoint(
@@ -246,9 +269,15 @@ pub async fn send_chat_with_options(
     let latency_ms = started.elapsed().as_millis() as u64;
 
     match classify_status(status) {
-        None => Ok(ChatOutcome { status, body: text, latency_ms }),
+        None => Ok(ChatOutcome {
+            status,
+            body: text,
+            latency_ms,
+        }),
         Some("auth") => Err(ProviderFailure::auth(scrub_provider_message(status, &text))),
-        Some(_) => Err(ProviderFailure::http_api(scrub_provider_message(status, &text))),
+        Some(_) => Err(ProviderFailure::http_api(scrub_provider_message(
+            status, &text,
+        ))),
     }
 }
 
@@ -260,7 +289,10 @@ mod tests {
     use std::thread;
 
     fn message() -> Vec<ChatMessage> {
-        vec![ChatMessage { role: "user".into(), content: "ping".into() }]
+        vec![ChatMessage {
+            role: "user".into(),
+            content: "ping".into(),
+        }]
     }
 
     /// Minimal single-shot HTTP server for transport tests.
@@ -336,21 +368,35 @@ mod tests {
     #[test]
     fn scrubbed_message_keeps_provider_text_short() {
         let body = r#"{"error": {"message": "rate limited"}}"#;
-        assert_eq!(scrub_provider_message(429, body), "HTTP 429 — Provider error: rate limited");
+        assert_eq!(
+            scrub_provider_message(429, body),
+            "HTTP 429 — Provider error: rate limited"
+        );
         // Non-JSON bodies never leak verbatim.
         assert_eq!(
             scrub_provider_message(500, "<html>weird</html>"),
             "HTTP 500 — Endpoint returned an unexpected error."
         );
         assert_eq!(
-            scrub_provider_message(400, r#"{"error":{"code":"bad_request","message":"sk-super-secret"}}"#),
+            scrub_provider_message(
+                400,
+                r#"{"error":{"code":"bad_request","message":"sk-super-secret"}}"#
+            ),
             "HTTP 400 — bad_request: [redacted]"
         );
     }
 
     #[test]
     fn openai_reasoning_body_uses_modern_completion_fields() {
-        let body = build_body_for_endpoint("gpt-5.6-luna", &message(), 0.2, 200, false, true, Some("high"));
+        let body = build_body_for_endpoint(
+            "gpt-5.6-luna",
+            &message(),
+            0.2,
+            200,
+            false,
+            true,
+            Some("high"),
+        );
         assert_eq!(body["max_completion_tokens"], 400);
         assert_eq!(body["reasoning_effort"], "high");
         assert!(body.get("max_tokens").is_none());
@@ -360,11 +406,21 @@ mod tests {
     #[tokio::test]
     async fn successful_call_returns_body_and_latency() {
         let base = serve_once(
-            http_response("200 OK", r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}],"usage":{"prompt_tokens":1}}"#),
+            http_response(
+                "200 OK",
+                r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}],"usage":{"prompt_tokens":1}}"#,
+            ),
             0,
         );
         let outcome = send_chat(
-            &base, "any-model", Some("test-key".into()), message(), 0.2, 50, 5000, false,
+            &base,
+            "any-model",
+            Some("test-key".into()),
+            message(),
+            0.2,
+            50,
+            5000,
+            false,
         )
         .await
         .unwrap();
@@ -380,9 +436,18 @@ mod tests {
             http_response("401 Unauthorized", r#"{"error":{"message":"invalid key"}}"#),
             0,
         );
-        let err = send_chat(&base, "any-model", Some(secret.into()), message(), 0.2, 50, 5000, false)
-            .await
-            .unwrap_err();
+        let err = send_chat(
+            &base,
+            "any-model",
+            Some(secret.into()),
+            message(),
+            0.2,
+            50,
+            5000,
+            false,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.class, "auth");
         assert!(!err.message.contains(secret));
     }
@@ -391,9 +456,18 @@ mod tests {
     async fn timeout_maps_to_network_class() {
         // Server accepts the connection but never answers in time.
         let base = serve_once(http_response("200 OK", "{}"), 1500);
-        let err = send_chat(&base, "any-model", Some("k".into()), message(), 0.2, 50, 150, false)
-            .await
-            .unwrap_err();
+        let err = send_chat(
+            &base,
+            "any-model",
+            Some("k".into()),
+            message(),
+            0.2,
+            50,
+            150,
+            false,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.class, "network");
         assert_eq!(err.message, "Connection timed out.");
     }
@@ -402,7 +476,14 @@ mod tests {
     async fn unreachable_endpoint_maps_to_network_class() {
         // Port 1 on localhost is closed; connection must fail fast.
         let err = send_chat(
-            "http://127.0.0.1:1", "any-model", Some("k".into()), message(), 0.2, 50, 2000, false,
+            "http://127.0.0.1:1",
+            "any-model",
+            Some("k".into()),
+            message(),
+            0.2,
+            50,
+            2000,
+            false,
         )
         .await
         .unwrap_err();
@@ -412,7 +493,14 @@ mod tests {
     #[tokio::test]
     async fn missing_key_is_a_config_error_before_any_network_io() {
         let err = send_chat(
-            "http://127.0.0.1:1", "any-model", None, message(), 0.2, 50, 2000, false,
+            "http://127.0.0.1:1",
+            "any-model",
+            None,
+            message(),
+            0.2,
+            50,
+            2000,
+            false,
         )
         .await
         .unwrap_err();
