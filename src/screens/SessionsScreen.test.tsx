@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   updateSessionInstruction: vi.fn(),
   verifyExecutionSession: vi.fn(),
   inspectProjectGuidance: vi.fn(),
+  listProfiles: vi.fn(),
   listProjectContextDocuments: vi.fn(),
   removeProjectContextDocument: vi.fn(),
   selectProjectContextDocument: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../services/projectContextService', () => ({
   projectContextPathInputError: mocks.projectContextPathInputError,
 }));
 vi.mock('../services/opencodeModels', () => ({ getOpenCodeModelDiscovery: mocks.getOpenCodeModelDiscovery }));
+vi.mock('../services/settingsService', () => ({ listProfiles: mocks.listProfiles }));
 vi.mock('../services/projectsService', () => ({ getProject: mocks.getProject }));
 vi.mock('../services/runtimeService', () => ({ detectRuntime: mocks.detectRuntime }));
 vi.mock('../services/vscodeIntegration', () => ({
@@ -80,6 +82,7 @@ beforeEach(() => {
   contextDocs = [];
   Object.values(mocks).forEach((mock) => mock.mockReset());
   mocks.getProject.mockResolvedValue({ id: 'project-offerpath', repoPath: '/Users/utku/projects/offerpath' });
+  mocks.listProfiles.mockResolvedValue([]);
   mocks.reconcileProjectSessions.mockResolvedValue([session]);
   mocks.listSessionEvents.mockImplementation(async () => events);
   mocks.renderSessionContinuation.mockResolvedValue('canonical continuation');
@@ -92,6 +95,7 @@ beforeEach(() => {
   });
   mocks.projectContextPathInputError.mockImplementation((raw: string) => raw.includes('..') ? 'Context document path cannot contain parent traversal (..).' : raw.startsWith('/') ? 'Context document path must be relative.' : null);
   mocks.detectRuntime.mockResolvedValue({ installed: false });
+  mocks.getExecutionSessionView.mockResolvedValue({ continuationState: null });
   mocks.publishVscodeSessionView.mockResolvedValue(undefined);
   mocks.getVscodeBridgeStatus.mockResolvedValue({ available: false, message: 'unavailable' });
   mocks.openVscode.mockResolvedValue({ application: 'Visual Studio Code', projectRoot: '/Users/utku/projects/offerpath' });

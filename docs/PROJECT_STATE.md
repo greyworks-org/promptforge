@@ -59,7 +59,7 @@
 ## Blockers & risks
 
 - U1 (blocking for live testing only): DeepSeek endpoint contract unconfirmed — connection test resolves it once a key is configured.
-- Full parallel TypeScript suite has an unrelated SessionsScreen timing failure (2/4 only when run with the entire suite); `src/screens/SessionsScreen.test.tsx` passes 4/4 in isolation and Sessions code was not changed by Slice 1.
+- SessionsScreen full-suite timing flake resolved (2026-08-14): the mounted screen arms a real 5s interval that calls `getExecutionSessionView` (a mock left bare after `mockReset` → `undefined.then` TypeError) and `load()` reached the real `settingsService.listProfiles`/app-DB path. Test now stubs both; 6/6 in isolation under contention and full suite green repeatedly (no assertion weakened, no sleeps added).
 - U2–U4 assumptions open: English UI, pnpm, macOS-first MVP.
 - R3/R5/R11 unchanged (FTS5, fs scopes, git binary) — later phases.
 - Slice 3 visual automation boundary: PromptForge captures one relevant rendered window and routes it through the existing OpenCode Qwen-MM Core capability. Missing visual target/capability evidence is intentionally surfaced as NEEDS HUMAN REVIEW; the existing Qwen-MM capability configuration remains unchanged.
