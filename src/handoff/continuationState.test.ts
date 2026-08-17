@@ -76,9 +76,32 @@ describe('derived continuation state', () => {
   it('requires reconciliation for a newer HEAD after the last observed HEAD', () => {
     const state = deriveContinuationState({
       task, session: session({ status: 'reconciled', lastKnownHead: 'head-old' }), events: [], memory,
-      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, recentCommits: [{ hash: 'new-context', subject: 'new external commit', committedAt: '2026-08-13T00:00:00Z' }] },
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, diff: undefined, recentCommits: [{ hash: 'new-context', subject: 'new external commit', committedAt: '2026-08-13T00:00:00Z' }] },
     });
     expect(state.taskStatus).toBe('needs reconciliation');
+    expect(state.wipAlignment.mode).toBe('adopt-wip');
+    expect(state.nextAction).toContain('WIP DRIFT');
+  });
+
+  it('keeps classic reconciliation guidance when preserve-task mode is selected', () => {
+    const state = deriveContinuationState({
+      task, session: session({ status: 'reconciled', lastKnownHead: 'head-old' }), events: [], memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, diff: undefined, recentCommits: [{ hash: 'new-context', subject: 'new external commit', committedAt: '2026-08-13T00:00:00Z' }] },
+      wipMode: 'preserve-task',
+    });
+    expect(state.taskStatus).toBe('needs reconciliation');
+    expect(state.wipAlignment.mode).toBe('preserve-task');
+    expect(state.nextAction).toContain('PROJECT CHANGED OUTSIDE CURRENT SESSION');
+  });
+
+  it('does not adopt WIP when live evidence vocabulary matches the archived task', () => {
+    const state = deriveContinuationState({
+      task, session: session({ status: 'reconciled', lastKnownHead: 'head-old' }), events: [], memory,
+      git: { ...git, uncommitted: { staged: [], unstaged: [], untracked: [], diffStat: '' }, diff: undefined, recentCommits: [{ hash: 'new-context', subject: 'finish the continuity slice implementation', committedAt: '2026-08-13T00:00:00Z' }] },
+    });
+    expect(state.taskStatus).toBe('needs reconciliation');
+    expect(state.wipAlignment.mode).toBe('preserve-task');
+    expect(state.wipAlignment.driftDetected).toBe(false);
     expect(state.nextAction).toContain('PROJECT CHANGED OUTSIDE CURRENT SESSION');
   });
 
