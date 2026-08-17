@@ -15,8 +15,8 @@
 
 ## Progress
 
-- **Current phase:** PromptForge v1 multi-model code finalization complete; feature frozen.
-- **Last validated task:** false continuation-reconciliation fix (2026-08-13) — the latest successfully observed session/semantic HEAD is the reconciliation baseline; bounded historical commits remain context only, while newer HEADs and dirty evidence remain UNVERIFIED reconciliation signals. Gates: focused TypeScript 79/79; root typecheck; production build; `git diff --check`.
+- **Current phase:** PromptForge v1 multi-model code finalization complete; WIP reconciliation capability added post-freeze (requested feature).
+- **Last validated task:** WIP task-spec reconciliation (2026-08-17) — when live Git evidence (uncommitted diff + commits newer than the observed HEAD) drifts from the archived TaskSpec vocabulary, handoff/continuation prompts adopt the live work-in-progress instead of dictating the stale objective; guardrails (scope lock, stop conditions, canonical reference) remain intact. Gates: TypeScript 609/609; root typecheck; production build.
 - **Current task:** project intelligence is persistent and evidence-bound; the Compiler accepts short intent, task lifecycle is explicit, and VS Code resumes the current workspace project through the existing OpenCode integration.
 - **Next task:** none for v1.
 
@@ -55,6 +55,7 @@
 
 - 2026-08-14 · Project intelligence validated: migration 0011 persists one Zod-validated intelligence document per project; derivation is pure and evidence-only, so every fact carries its source artefact, repository content and repository changes stay UNVERIFIED, only PromptForge-side verification produces verified progress, and unsupported product/architecture/roadmap facts stay UNKNOWN. Bootstrap and reconciliation share one derivation: an existing record is merged and its bootstrap timestamp preserved, while facts whose evidence disappeared are dropped. The Compiler receives a bounded summary so a short intent compiles, and a typed intent overrides the recommendation. Gates: intelligence 9/9 + 6/6; TypeScript 595/595; typecheck; production build; Rust 88/88; `git diff --check`; Tauri macOS bundle.
 - 2026-08-14 · Project-aware VS Code resume validated: the loopback bridge accepts a workspace-scoped project action carrying only the repository root; PromptForge resolves the registered project from the canonical Git root, reconciles live Git state, derives a fresh ContinuationState, and executes only for an active or reconciliation-pending task. Completed, blocked and review-pending tasks never execute. The exact saved OpenCode reference is taken from the session binding and then the bound provider profile; a missing reference produces configuration required rather than a guessed model. Desktop and VS Code share the same persisted rows. Gates: resume 11/11; workspace root 2/2; extension compile; Rust bridge 5/5.
+- 2026-08-17 · WIP task-spec reconciliation: `src/handoff/wipReconciliation.ts` derives, deterministically and model-free, whether live Git evidence (handoff-filtered uncommitted paths plus bounded commits newer than the observed session/semantic HEAD) shares vocabulary with the archived TaskSpec (objective/scope/acceptance token overlap). Below the drift threshold, `deriveContinuationState` marks `wipAlignment.mode = 'adopt-wip'`; Claude/Qwen/Codex continuation prompts then render the live WIP objective as the current task, list drift evidence, and focus Next action / pending / acceptance on completing and verifying the live diff, while the archived TaskSpec stays canonical in memory and all guardrails (scope lock, stop conditions, out-of-scope, canonical reference) are preserved. Selection is `wipMode: 'auto' | 'adopt-wip' | 'preserve-task'` (auto default) on derivation input, snapshot assembly, render-time derivation, and cross-model packages. No DB schema changes; backward compatible — aligned evidence keeps the previous behavior.
 
 ## Blockers & risks
 
@@ -82,7 +83,7 @@
 - src/db/migrations/0010_session_runtime_cwd.sql · src/db/repos/executionSessions.ts · src/sessions/{types,executionSessionService}.ts · src/screens/SessionsScreen.tsx
 - src/services/opencodeModels.ts · src/services/opencodeModels.test.ts
 - src/handoff/{crossModel,crossModelService}.ts · src/handoff/crossModelService.test.ts · src/db/repos/executionHandoffs.ts · src/db/migrations/0008_execution_handoffs.sql
-- src/handoff/{continuationState,renderCurrentState}.ts · src/handoff/continuationState.test.ts · src/services/continuationRefresh.ts · src/services/{gitState,projectFreshness}.ts · src-tauri/src/commands/git.rs
+- src/handoff/{continuationState,renderCurrentState,wipReconciliation}.ts · src/handoff/continuationState.test.ts · tests/wipHandoff.test.ts · src/services/continuationRefresh.ts · src/services/{gitState,projectFreshness}.ts · src-tauri/src/commands/git.rs
 - opencode.json · .opencode/skills/qwen-mm-plugins-core/SKILL.md · tools/validate-opencode-capability.mjs
 - src/services/vscodeIntegration.ts · src-tauri/src/commands/vscode.rs · vscode-extension/{package.json,src/*}
 - src/compiler/{pipeline,systemPrompt,parse,enrich,critic,qualityProfile}.ts · src/compiler/executionContract.test.ts
@@ -94,6 +95,7 @@
 
 ## Last tests & results
 
+- 2026-08-17 · WIP task-spec reconciliation: WIP primitives + handoff prompt adaptation simulation 12/12 ✓ (`tests/wipHandoff.test.ts`); continuation reconciliation regressions updated 3 new cases ✓ (`src/handoff/continuationState.test.ts`); full TypeScript 609/609 ✓ (66 files); `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓. Real-world replay validated: the Offerpath stale Gmail-tracking TaskSpec against the live deterministic-answer-resolver diff now renders `Live WIP adoption` with 3% overlap, drift evidence, and guardrails intact; vocabulary-aligned diffs and `preserve-task` keep the archived objective.
 - 2026-08-13 · Product-quality/runtime-correctness pass: full TypeScript 543/543 ✓ (60 files); final affected regression rerun 37/37 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; final `corepack pnpm tauri build` ✓. History success/empty/error/retry states, active-project reload, focus/interval repository refresh, context-state distinction, legacy model binding, provider identity, and UX cleanup covered by focused regressions. Packaged app launch PASS from Finder (user-confirmed).
 - 2026-08-13 · Dynamic continuation finalized: derived project-aware state reconciles current repository evidence, relevant commits/changes, persisted sessions/checkpoints, verification evidence, completed vs remaining work, blocker/task lifecycle, and source→target runtime/model identity. Focused TypeScript 103/103 ✓; Rust 87/87 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓ with the prior dynamic-import chunk warning resolved; `corepack pnpm validate:opencode-capability` ✓; `git diff --check` ✓; `corepack pnpm tauri build` ✓. No transcript replay and no automatic replay of completed task items.
 - 2026-08-13 · False continuation-reconciliation fix: matching current/reconciled HEAD stays active across reopen; newer HEAD and dirty changes remain needs reconciliation/UNVERIFIED; successful reconciliation reference heads advance; historical commits alone do not trigger legacy sessions. Focused TypeScript 79/79 ✓; `corepack pnpm typecheck` ✓; `corepack pnpm build` ✓; `git diff --check` ✓.
@@ -138,11 +140,12 @@
 
 ## Git checkpoint
 
-- **Latest checkpoint:** `feat(vscode): add project-aware resume command` (persistent project intelligence plus the workspace-scoped resume command).
+- **Latest checkpoint:** `docs(state): record WIP task-spec reconciliation capability` (deterministic WIP task-spec reconciliation; adoption-capable Claude/Qwen/Codex continuation prompts).
 - **Uncommitted changes:** none after the checkpoint commit.
 
 ## Recent history
 
+- 2026-08-17 · WIP task-spec reconciliation — deterministic drift detection between live Git evidence and the archived TaskSpec; handoff/continuation prompts adopt the live work-in-progress (auto or explicit `wipMode`), keeping archived goals canonical and guardrails intact.
 - 2026-08-14 · Project intelligence and project-aware VS Code resume — persistent per-project intelligence (migration 0011), evidence-based next-task recommendation, short-intent Compiler mode, explicit task lifecycle, and one workspace-scoped VS Code resume command.
 
 - 2026-08-13 · PromptForge v1 final product pass — persistent History terminal states, active-project repository freshness, clear context/provider/model terminology, restrained end-user UX across the main screens, and final package launch confirmation.
