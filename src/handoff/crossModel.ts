@@ -127,21 +127,27 @@ export function buildContinuationPackage(input: BuildContinuationPackageInput): 
       runtime: 'opencode',
       binding: { providerId: targetModel.providerId, modelId: targetModel.modelId, modelRef: targetModel.modelRef },
     },
+    wipMode: snapshot.wipMode ?? 'auto',
   });
   const source = sourceReference(sourceSession);
   const target = targetReference(targetSessionId, targetModel);
+  const adoptingWip = state.wipAlignment.mode === 'adopt-wip';
   const observedCompleted = unique(state.verifiedCompleted);
   const observedPartial = unique(state.unverified);
   const decisions = unique(state.decisions);
   const constraints = unique(state.scopeConstraints);
   const validationEvidence = unique(state.verificationEvidence);
-  const acceptanceRequiringVerification = unique(state.remaining);
+  const acceptanceRequiringVerification = unique(adoptingWip
+    ? [...state.wipAlignment.actionItems, ...state.remaining.map((item) => `Archived task (reference only): ${item}`)]
+    : state.remaining);
   const knownBlockers = unique(state.blockers);
   const immediateNextAction = state.nextAction;
-  const instruction = 'The current repository and reconciled PromptForge continuation state are authoritative. Continue only the unresolved work. Verify ambiguous items. Do not redo already-implemented work. Do not depend on the previous conversation.';
+  const instruction = adoptingWip
+    ? 'The current repository and reconciled PromptForge continuation state are authoritative. The live work-in-progress has drifted from the archived TaskSpec and takes precedence. Complete and verify the in-progress work before revisiting archived items. Verify ambiguous items. Do not redo already-implemented work. Do not depend on the previous conversation.'
+    : 'The current repository and reconciled PromptForge continuation state are authoritative. Continue only the unresolved work. Verify ambiguous items. Do not redo already-implemented work. Do not depend on the previous conversation.';
   const packageWithoutRendered = {
     repository: snapshot.repoPath,
-    task: { id: task.task_id, goal: task.objective },
+    task: { id: task.task_id, goal: adoptingWip && state.wipAlignment.objective ? state.wipAlignment.objective : task.objective },
     currentStatus: state.taskStatus,
     observedCompleted,
     observedPartial,

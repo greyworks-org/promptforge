@@ -21,6 +21,7 @@ function stateFor(snapshot: HandoffSnapshot, target: HandoffTarget): Continuatio
     git: snapshot.git,
     currentCompilationProvider: snapshot.currentCompilation?.providerLabel ?? null,
     target: { runtime: target === 'Claude Code' ? 'claude-code' : target === 'Qwen Code' ? 'qwen-code' : 'codex' },
+    wipMode: snapshot.wipMode ?? 'auto',
   });
 }
 
@@ -32,6 +33,11 @@ export function renderCurrentContinuation(
 ): string {
   const state = stateFor(snapshot, target);
   const changed = filterHandoffPaths(state.relevantChangedFiles);
+  const adoptingWip = state.wipAlignment.mode === 'adopt-wip';
+  // When the live diff has drifted from the archived TaskSpec, actionable
+  // focus shifts to completing/verifying the in-progress work. Archived
+  // acceptance remains visible for reference only; guardrails stay intact.
+  const activeItems = adoptingWip ? state.wipAlignment.actionItems : state.remaining;
   const sections: string[] = [
     `# ${title}: ${snapshot.projectName}`,
     '',
@@ -39,8 +45,21 @@ export function renderCurrentContinuation(
     'The current repository and canonical evidence are authoritative. Do not replay the previous conversation.',
     '',
     '## Current task',
-    snapshot.currentTask ? `${snapshot.currentTask.objective} (${snapshot.currentTask.task_id})` : 'No active TaskSpec.',
+    adoptingWip && state.wipAlignment.objective
+      ? `Live WIP adoption: ${state.wipAlignment.objective}`
+      : snapshot.currentTask
+        ? `${snapshot.currentTask.objective} (${snapshot.currentTask.task_id})`
+        : 'No active TaskSpec.',
     `Status: ${state.taskStatus}`,
+    ...(adoptingWip && snapshot.currentTask
+      ? [`Archived task (canonical reference only): ${snapshot.currentTask.objective} (${snapshot.currentTask.task_id})`]
+      : []),
+    ...(adoptingWip
+      ? [`Drift detected: live diff vocabulary overlap with the archived task is ${(state.wipAlignment.overlapRatio * 100).toFixed(0)}%.`]
+      : []),
+    ...(adoptingWip && state.wipAlignment.evidence.length > 0
+      ? ['Live WIP evidence:', ...state.wipAlignment.evidence.map((item) => `- ${item}`)]
+      : []),
     '',
     '## Current project state',
     `Repository: \`${snapshot.repoPath}\``,
@@ -69,7 +88,7 @@ export function renderCurrentContinuation(
     ...(state.unverified.length > 0 ? state.unverified.map((item) => `- ${item}`) : ['- None recorded.']),
     '',
     '## Still pending',
-    ...(state.remaining.length > 0 ? state.remaining.map((item) => `- ${item}`) : ['- None.']),
+    ...(activeItems.length > 0 ? activeItems.map((item) => `- ${item}`) : ['- None.']),
     '',
     '## Next action',
     state.nextAction,
@@ -81,12 +100,21 @@ export function renderCurrentContinuation(
   if (state.scopeConstraints.length > 0) sections.push('', '## Scope / preserve constraints', ...state.scopeConstraints.map((item) => `- ${item}`));
   if (snapshot.currentTask) {
     sections.push('', '## Scope lock', 'Preserve the existing architecture, behavior, data and interfaces. Do not perform unrelated cleanup or start later delivery slices.');
-    sections.push('', '## Completion control', 'Functional golden-path verification (required when runnable):');
-    sections.push(...(state.remaining.length > 0 ? state.remaining.map((item) => `- ${item}`) : ['- No unresolved acceptance items.']));
-    sections.push('', 'Original task items to reconcile against current repository state');
-    sections.push('', '### Acceptance requiring verification', ...(state.remaining.length > 0 ? state.remaining.map((item) => `- ${item}`) : ['- None.']));
+    sections.push('', '## Completion control', adoptingWip
+      ? 'Live work-in-progress gate (required when runnable). Do not define success by the archived acceptance criteria until the in-progress work is complete and verified:'
+      : 'Functional golden-path verification (required when runnable):');
+    sections.push(...(activeItems.length > 0 ? activeItems.map((item) => `- ${item}`) : ['- No unresolved acceptance items.']));
+    if (adoptingWip) {
+      sections.push('', 'Live WIP items to complete and verify before revisiting the archived task', '### Live WIP acceptance requiring verification', ...(state.wipAlignment.actionItems.map((item) => `- ${item}`)));
+      sections.push('', '### Archived acceptance (reference only)', ...(state.remaining.length > 0 ? state.remaining.map((item) => `- ${item}`) : ['- None.']));
+    } else {
+      sections.push('', 'Original task items to reconcile against current repository state');
+      sections.push('', '### Acceptance requiring verification', ...(state.remaining.length > 0 ? state.remaining.map((item) => `- ${item}`) : ['- None.']));
+    }
   }
-  sections.push('', '## Canonical TaskSpec reference', `TaskSpec ${state.originalTaskReference ?? 'not available'} remains canonical; only unresolved items above are actionable.`);
+  sections.push('', '## Canonical TaskSpec reference', adoptingWip
+    ? `TaskSpec ${state.originalTaskReference ?? 'not available'} remains canonical in memory, but the live work-in-progress takes precedence; finish or explicitly park it before resuming archived task items.`
+    : `TaskSpec ${state.originalTaskReference ?? 'not available'} remains canonical; only unresolved items above are actionable.`);
   if (snapshot.currentTask) {
     sections.push(`## Original task execution`, `- Runtime: ${runtimeLabel(snapshot.currentTask.agent_runtime)}`, `- Provider/access: ${snapshot.currentCompilation?.providerLabel ?? 'recorded provider unavailable'} / OS Keychain`, `- Model: ${snapshot.currentTask.target_model}`);
   }

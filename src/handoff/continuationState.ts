@@ -4,6 +4,7 @@ import type { GitSnapshot } from '../services/gitState';
 import { deriveFunctionalVerificationPlan } from '../services/verification';
 import type { ExecutionSession, SessionEvent, SessionRuntime, RuntimeBinding } from '../sessions/types';
 import { filterHandoffPaths } from './metadata';
+import { deriveWipAlignment, type WipAlignment, type WipMode } from './wipReconciliation';
 
 export type ContinuationStatus =
   | 'active'
@@ -41,6 +42,8 @@ export interface ContinuationState {
   noProgressEvidence: boolean;
   scopeConstraints: string[];
   originalTaskReference: string | null;
+  /** Deterministic WIP vs archived TaskSpec reconciliation result. */
+  wipAlignment: WipAlignment;
 }
 
 export interface DeriveContinuationStateInput {
@@ -51,6 +54,13 @@ export interface DeriveContinuationStateInput {
   git: GitSnapshot;
   currentCompilationProvider?: string | null;
   target?: { runtime?: SessionRuntime | null; binding?: Partial<RuntimeBinding> };
+  /**
+   * WIP reconciliation selection. 'auto' (default) adopts the live
+   * work-in-progress only when Git evidence drifts from the archived
+   * TaskSpec; 'adopt-wip' forces adoption; 'preserve-task' always keeps the
+   * archived TaskSpec objective.
+   */
+  wipMode?: WipMode;
 }
 
 function unique(items: string[]): string[] {
@@ -184,6 +194,17 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
   // recentCommits are bounded context from the task/base commit. They are not
   // reconciliation evidence because that base can predate the last observed HEAD.
   const externalChange = headChanged || dirtyRepository || session?.status === 'interrupted';
+  // Reconcile the archived TaskSpec against live working-tree evidence. When
+  // the live diff drifts from the archived objective, continuation must not
+  // blindly dictate the stale task.
+  const wipAlignment = deriveWipAlignment({
+    task,
+    git,
+    changedFiles: files,
+    observedHead,
+    mode: input.wipMode ?? 'auto',
+  });
+  const adoptingWip = wipAlignment.mode === 'adopt-wip';
   const taskStatus: ContinuationStatus = ready
     ? 'completed'
     : blockers.length > 0
@@ -194,7 +215,7 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
           ? 'needs reconciliation'
           : 'active';
   const noProgressEvidence = verifiedCompleted.length === 0 && unverified.length === 0 && checkpointNotes.length === 0 && verificationEvidence.length === 0;
-  const nextAction = taskStatus === 'completed'
+  const baseNextAction = taskStatus === 'completed'
     ? 'TASK COMPLETE — run/use Verify & complete or start a new Compiler task.'
     : blockers.length > 0
       ? `Resolve or document the blocker first: ${blockers[0]}`
@@ -209,6 +230,15 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
             : noProgressEvidence
               ? 'No progress evidence exists. Inspect the current repository against the canonical TaskSpec before acting.'
               : 'Reconcile the current repository evidence and choose the smallest safe next step.';
+  // When the live diff has drifted from the archived TaskSpec, steer the next
+  // action toward completing/verifying the in-progress work instead of the
+  // stale objective. Terminal states keep their dedicated guidance.
+  const nextAction = adoptingWip
+    && taskStatus !== 'completed'
+    && taskStatus !== 'blocked'
+    && taskStatus !== 'needs human review'
+    ? `WIP DRIFT — archived task objective suppressed in favor of live work. ${wipAlignment.actionItems[0] ?? 'Review the uncommitted changes and recent commits, then complete and verify the in-progress work before editing further.'}`
+    : baseNextAction;
   const scopeConstraints = unique([
     ...(task?.execution_contract?.preserve ?? []),
     ...(task?.execution_contract?.invariants ?? []),
@@ -217,6 +247,7 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
     ...(task?.out_of_scope ?? []).map((item) => `Out of scope: ${item}`),
     ...(task?.stop_conditions ?? []).map((item) => `Stop condition: ${item}`),
     ...(task?.scope ?? []).filter((item) => !isSatisfied(item, verifiedCompleted)),
+    ...(adoptingWip ? ['Finish or explicitly park the live work-in-progress before resuming archived TaskSpec work.'] : []),
   ]);
 
   return {
@@ -241,5 +272,6 @@ export function deriveContinuationState(input: DeriveContinuationStateInput): Co
     noProgressEvidence,
     scopeConstraints,
     originalTaskReference: task?.task_id ?? null,
+    wipAlignment,
   };
 }

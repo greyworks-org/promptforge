@@ -3,6 +3,7 @@ import type { TaskSpec } from '../schemas/taskspec';
 import type { GitSnapshot } from '../services/gitState';
 import type { CompilationRecord } from '../db/repos/compilations';
 import type { ContinuationState } from './continuationState';
+import type { WipMode } from './wipReconciliation';
 
 /**
  * Handoff snapshot assembly (Phase 10).
@@ -30,6 +31,8 @@ export interface HandoffSnapshot {
   currentCompilation: CompilationRecord | null;
   /** Fresh derived state used by continuation renderers when available. */
   continuationState?: ContinuationState;
+  /** WIP reconciliation selection used when state is derived at render time. */
+  wipMode?: WipMode;
   /** When the snapshot was assembled. */
   assembledAt: string;
 }
@@ -50,6 +53,7 @@ export interface AssembleSnapshotInput {
   currentTask: TaskSpec | null;
   currentCompilation?: CompilationRecord | null;
   continuationState?: ContinuationState;
+  wipMode?: WipMode;
 }
 
 /**
